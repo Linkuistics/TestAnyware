@@ -1,0 +1,45 @@
+{
+  "command": "state() {\n  if err=$(kill -0 \"$1\" 2>&1); then echo alive\n  else case \"$err\" in\n    *[Nn]o\\ such\\ process*) echo gone ;;\n    *) echo unknown ;;\n  esac; fi\n}\nwait_gone() {\n  i=0\n  while [ \"$(state \"$1\")\" = alive ] && [ \"$i\" -lt \"$2\" ]; do\n    sleep 0.1; i=$((i + 1))\n  done\n}\noutcome=confirmed\nfor f in /tmp/taw-k223/timeout/child.pid /tmp/taw-k223/cancel/child.pid /tmp/taw-k223/interrupt/child.pid; do\n  [ -f \"$f\" ] || continue\n  pid=$(cat \"$f\")\n  cmd=$(ps -p \"$pid\" -o args= | sed 's/ *$//')\n  printf '%s pid=%s command=%s\\n' \"$f\" \"$pid\" \"$cmd\"\n  if [ \"$cmd\" != \"sleep 120\" ]; then\n    s=$(state \"$pid\")\n    if [ -z \"$cmd\" ] && [ \"$s\" = gone ]; then printf 'gone pid=%s\\n' \"$pid\"\n    elif [ -n \"$cmd\" ] && [ \"$s\" = alive ]; then printf 'other pid=%s\\n' \"$pid\"\n    else printf 'unknown pid=%s state=%s\\n' \"$pid\" \"$s\"; outcome=uncertain; fi\n    continue\n  fi\n  kill -TERM \"$pid\"\n  wait_gone \"$pid\" 20\n  action=terminated\n  if [ \"$(state \"$pid\")\" = alive ]; then\n    kill -KILL \"$pid\"; action=killed\n    wait_gone \"$pid\" 5\n  fi\n  s=$(state \"$pid\")\n  if [ \"$s\" = gone ]; then printf '%s pid=%s\\n' \"$action\" \"$pid\"\n  else printf 'survived pid=%s state=%s\\n' \"$pid\" \"$s\"; outcome=uncertain; fi\ndone\nprintf 'cleanup %s\\n' \"$outcome\"\n[ \"$outcome\" = confirmed ]",
+  "evidence": {
+    "stderr": {
+      "base64": "",
+      "bytes": 0,
+      "capture": "complete",
+      "file_bytes": 0,
+      "reason": null,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "stdout": {
+      "base64": "L3RtcC90YXctazIyMy90aW1lb3V0L2NoaWxkLnBpZCBwaWQ9MjA4MiBjb21tYW5kPQpnb25lIHBpZD0yMDgyCi90bXAvdGF3LWsyMjMvY2FuY2VsL2NoaWxkLnBpZCBwaWQ9MjEyNyBjb21tYW5kPQpnb25lIHBpZD0yMTI3Ci90bXAvdGF3LWsyMjMvaW50ZXJydXB0L2NoaWxkLnBpZCBwaWQ9MjE3NCBjb21tYW5kPQpnb25lIHBpZD0yMTc0CmNsZWFudXAgY29uZmlybWVkCg==",
+      "bytes": 211,
+      "capture": "complete",
+      "file_bytes": 211,
+      "reason": null,
+      "sha256": "5d05cbb1cd4a11b7b80d23919b39ac4c90757e255f47cc1e946c1d93c5a9ec25"
+    }
+  },
+  "exec_id": "k223-cleanup-14ae307e7c3749a2a250972084f506c8",
+  "exit_code": 0,
+  "legacy_projection": "linux",
+  "lifecycle": {
+    "duration_ms": 33,
+    "finalised_after_ms": 0,
+    "group_id": 2202,
+    "leader_pid": 2202,
+    "leader_start_time": "2928",
+    "owner_lateness_ms": 0,
+    "spawn_ms": 1
+  },
+  "ok": true,
+  "outcome": {
+    "exit_code": 0,
+    "kind": "exited"
+  },
+  "record": "agent",
+  "remaining_group": "none",
+  "schema_version": "1.0",
+  "stderr": "",
+  "stdout": "/tmp/taw-k223/timeout/child.pid pid=2082 command=\ngone pid=2082\n/tmp/taw-k223/cancel/child.pid pid=2127 command=\ngone pid=2127\n/tmp/taw-k223/interrupt/child.pid pid=2174 command=\ngone pid=2174\ncleanup confirmed",
+  "termination": null,
+  "timed_out": false
+}

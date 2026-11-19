@@ -1,0 +1,45 @@
+{
+  "command": "f=/tmp/taw-k223/cancel/child.pid\nif ! pid=$(cat \"$f\"); then printf 'child pid-file=unreadable\\n'; exit 0; fi\nprintf 'child pid=%s\\n' \"$pid\"\nps -p \"$pid\" -o pid=,ppid=,pgid=,stat=,lstart=,args=\nprintf 'child ps-exit=%s\\n' \"$?\"",
+  "evidence": {
+    "stderr": {
+      "base64": "",
+      "bytes": 0,
+      "capture": "complete",
+      "file_bytes": 0,
+      "reason": null,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "stdout": {
+      "base64": "Y2hpbGQgcGlkPTIxMTcKY2hpbGQgcHMtZXhpdD0xCg==",
+      "bytes": 31,
+      "capture": "complete",
+      "file_bytes": 31,
+      "reason": null,
+      "sha256": "6cdfd7bef3fd971a64cb9697425ac9b97ddb748167465d46d02d8214ad3cb635"
+    }
+  },
+  "exec_id": "k223-after-cancel-14-e72204869f034a55b85751cd7181f22c",
+  "exit_code": 0,
+  "legacy_projection": "linux",
+  "lifecycle": {
+    "duration_ms": 17,
+    "finalised_after_ms": 0,
+    "group_id": 2157,
+    "leader_pid": 2157,
+    "leader_start_time": "2659",
+    "owner_lateness_ms": 0,
+    "spawn_ms": 1
+  },
+  "ok": true,
+  "outcome": {
+    "exit_code": 0,
+    "kind": "exited"
+  },
+  "record": "agent",
+  "remaining_group": "none",
+  "schema_version": "1.0",
+  "stderr": "",
+  "stdout": "child pid=2117\nchild ps-exit=1",
+  "termination": null,
+  "timed_out": false
+}

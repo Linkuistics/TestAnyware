@@ -1,0 +1,1386 @@
+{
+  "run_id": "36fec4c993e3469b92f0e98f63989d31",
+  "calls": [
+    {
+      "name": "app-identity",
+      "argv": [
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/.venv/bin/python",
+        "-I",
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/acceptance_k223_app.py",
+        "--cli",
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.k224-build/cli-rs/target/release/testanyware",
+        "--observation",
+        "30"
+      ],
+      "budget": 35.0,
+      "expected_exit": 0,
+      "expected_stdout": null,
+      "interrupt_after": null,
+      "expected_reason": "exit"
+    },
+    {
+      "name": "health-before",
+      "argv": [
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.k224-build/cli-rs/target/release/testanyware",
+        "agent",
+        "health",
+        "--vm",
+        "k223-linux-03-36fec4c993e3469b92f0e98f63989d31",
+        "--json"
+      ],
+      "budget": 30.0,
+      "expected_exit": 0,
+      "expected_stdout": null,
+      "interrupt_after": null,
+      "expected_reason": "exit"
+    },
+    {
+      "name": "identity",
+      "argv": [
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.k224-build/cli-rs/target/release/testanyware",
+        "file",
+        "exec",
+        "--vm",
+        "k223-linux-03-36fec4c993e3469b92f0e98f63989d31",
+        "--timeout",
+        "10",
+        "--exec-id",
+        "k223-identity-36fec4c993e3469b92f0e98f63989d31",
+        "--json",
+        "cd /opt/testanyware && find . -type f -name '*.py' | LC_ALL=C sort | xargs sha256sum; cat /etc/os-release; uname -a"
+      ],
+      "budget": 30.0,
+      "expected_exit": 0,
+      "expected_stdout": null,
+      "interrupt_after": null,
+      "expected_reason": "exit"
+    },
+    {
+      "name": "bootstrap-dir",
+      "argv": [
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.k224-build/cli-rs/target/release/testanyware",
+        "file",
+        "exec",
+        "--vm",
+        "k223-linux-03-36fec4c993e3469b92f0e98f63989d31",
+        "--timeout",
+        "10",
+        "--exec-id",
+        "k223-bootstrap-dir-36fec4c993e3469b92f0e98f63989d31",
+        "--json",
+        "mkdir -p /tmp/vmfit-k15"
+      ],
+      "budget": 30.0,
+      "expected_exit": 0,
+      "expected_stdout": null,
+      "interrupt_after": null,
+      "expected_reason": "exit"
+    },
+    {
+      "name": "upload-guest-sh",
+      "argv": [
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.k224-build/cli-rs/target/release/testanyware",
+        "file",
+        "upload",
+        "--vm",
+        "k223-linux-03-36fec4c993e3469b92f0e98f63989d31",
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/linux-timeout-live-k204/fixture-r5/guest.sh",
+        "/tmp/vmfit-k15/guest.sh",
+        "--json"
+      ],
+      "budget": 150.0,
+      "expected_exit": 0,
+      "expected_stdout": null,
+      "interrupt_after": null,
+      "expected_reason": "exit"
+    },
+    {
+      "name": "upload-lesson",
+      "argv": [
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.k224-build/cli-rs/target/release/testanyware",
+        "file",
+        "upload",
+        "--vm",
+        "k223-linux-03-36fec4c993e3469b92f0e98f63989d31",
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/linux-timeout-live-k204/fixture-r5/lesson",
+        "/tmp/vmfit-k15/lesson",
+        "--json"
+      ],
+      "budget": 150.0,
+      "expected_exit": 0,
+      "expected_stdout": null,
+      "interrupt_after": null,
+      "expected_reason": "exit"
+    },
+    {
+      "name": "baseline",
+      "argv": [
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.k224-build/cli-rs/target/release/testanyware",
+        "file",
+        "exec",
+        "--vm",
+        "k223-linux-03-36fec4c993e3469b92f0e98f63989d31",
+        "--timeout",
+        "40",
+        "--exec-id",
+        "k223-baseline-36fec4c993e3469b92f0e98f63989d31",
+        "--json",
+        "bash /tmp/vmfit-k15/guest.sh inventory"
+      ],
+      "budget": 60.0,
+      "expected_exit": 0,
+      "expected_stdout": null,
+      "interrupt_after": null,
+      "expected_reason": "exit"
+    },
+    {
+      "name": "install",
+      "argv": [
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.k224-build/cli-rs/target/release/testanyware",
+        "file",
+        "exec",
+        "--vm",
+        "k223-linux-03-36fec4c993e3469b92f0e98f63989d31",
+        "--timeout",
+        "10",
+        "--exec-id",
+        "k223-install-36fec4c993e3469b92f0e98f63989d31",
+        "--json",
+        "bash /tmp/vmfit-k15/guest.sh install"
+      ],
+      "budget": 30.0,
+      "expected_exit": 0,
+      "expected_stdout": null,
+      "interrupt_after": null,
+      "expected_reason": "exit"
+    },
+    {
+      "name": "intact",
+      "argv": [
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.k224-build/cli-rs/target/release/testanyware",
+        "file",
+        "exec",
+        "--vm",
+        "k223-linux-03-36fec4c993e3469b92f0e98f63989d31",
+        "--timeout",
+        "10",
+        "--exec-id",
+        "k223-intact-36fec4c993e3469b92f0e98f63989d31",
+        "--json",
+        "/usr/local/bin/vmfit-lesson"
+      ],
+      "budget": 30.0,
+      "expected_exit": 0,
+      "expected_stdout": null,
+      "interrupt_after": null,
+      "expected_reason": "exit"
+    },
+    {
+      "name": "ordinary-01",
+      "argv": [
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.k224-build/cli-rs/target/release/testanyware",
+        "agent",
+        "health",
+        "--vm",
+        "k223-linux-03-36fec4c993e3469b92f0e98f63989d31",
+        "--json"
+      ],
+      "budget": 30.0,
+      "expected_exit": 0,
+      "expected_stdout": null,
+      "interrupt_after": null,
+      "expected_reason": "exit"
+    },
+    {
+      "name": "ordinary-02",
+      "argv": [
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.k224-build/cli-rs/target/release/testanyware",
+        "file",
+        "exec",
+        "--vm",
+        "k223-linux-03-36fec4c993e3469b92f0e98f63989d31",
+        "--timeout",
+        "10",
+        "--exec-id",
+        "k223-ordinary-02-36fec4c993e3469b92f0e98f63989d31",
+        "--json",
+        "printf ordinary-ok"
+      ],
+      "budget": 30.0,
+      "expected_exit": 0,
+      "expected_stdout": null,
+      "interrupt_after": null,
+      "expected_reason": "exit"
+    },
+    {
+      "name": "ordinary-03",
+      "argv": [
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.k224-build/cli-rs/target/release/testanyware",
+        "file",
+        "exec",
+        "--vm",
+        "k223-linux-03-36fec4c993e3469b92f0e98f63989d31",
+        "--timeout",
+        "10",
+        "--exec-id",
+        "k223-ordinary-03-36fec4c993e3469b92f0e98f63989d31",
+        "--json",
+        "ps -eo pid,ppid,pgid,sid,stat,lstart,etime,args"
+      ],
+      "budget": 30.0,
+      "expected_exit": 0,
+      "expected_stdout": null,
+      "interrupt_after": null,
+      "expected_reason": "exit"
+    },
+    {
+      "name": "ordinary-04",
+      "argv": [
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.k224-build/cli-rs/target/release/testanyware",
+        "agent",
+        "health",
+        "--vm",
+        "k223-linux-03-36fec4c993e3469b92f0e98f63989d31",
+        "--json"
+      ],
+      "budget": 30.0,
+      "expected_exit": 0,
+      "expected_stdout": null,
+      "interrupt_after": null,
+      "expected_reason": "exit"
+    },
+    {
+      "name": "ordinary-05",
+      "argv": [
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.k224-build/cli-rs/target/release/testanyware",
+        "file",
+        "exec",
+        "--vm",
+        "k223-linux-03-36fec4c993e3469b92f0e98f63989d31",
+        "--timeout",
+        "10",
+        "--exec-id",
+        "k223-ordinary-05-36fec4c993e3469b92f0e98f63989d31",
+        "--json",
+        "printf ordinary-ok"
+      ],
+      "budget": 30.0,
+      "expected_exit": 0,
+      "expected_stdout": null,
+      "interrupt_after": null,
+      "expected_reason": "exit"
+    },
+    {
+      "name": "ordinary-06",
+      "argv": [
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.k224-build/cli-rs/target/release/testanyware",
+        "file",
+        "exec",
+        "--vm",
+        "k223-linux-03-36fec4c993e3469b92f0e98f63989d31",
+        "--timeout",
+        "10",
+        "--exec-id",
+        "k223-ordinary-06-36fec4c993e3469b92f0e98f63989d31",
+        "--json",
+        "ps -eo pid,ppid,pgid,sid,stat,lstart,etime,args"
+      ],
+      "budget": 30.0,
+      "expected_exit": 0,
+      "expected_stdout": null,
+      "interrupt_after": null,
+      "expected_reason": "exit"
+    },
+    {
+      "name": "ordinary-07",
+      "argv": [
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.k224-build/cli-rs/target/release/testanyware",
+        "agent",
+        "health",
+        "--vm",
+        "k223-linux-03-36fec4c993e3469b92f0e98f63989d31",
+        "--json"
+      ],
+      "budget": 30.0,
+      "expected_exit": 0,
+      "expected_stdout": null,
+      "interrupt_after": null,
+      "expected_reason": "exit"
+    },
+    {
+      "name": "ordinary-08",
+      "argv": [
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.k224-build/cli-rs/target/release/testanyware",
+        "file",
+        "exec",
+        "--vm",
+        "k223-linux-03-36fec4c993e3469b92f0e98f63989d31",
+        "--timeout",
+        "10",
+        "--exec-id",
+        "k223-ordinary-08-36fec4c993e3469b92f0e98f63989d31",
+        "--json",
+        "printf ordinary-ok"
+      ],
+      "budget": 30.0,
+      "expected_exit": 0,
+      "expected_stdout": null,
+      "interrupt_after": null,
+      "expected_reason": "exit"
+    },
+    {
+      "name": "ordinary-09",
+      "argv": [
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.k224-build/cli-rs/target/release/testanyware",
+        "file",
+        "exec",
+        "--vm",
+        "k223-linux-03-36fec4c993e3469b92f0e98f63989d31",
+        "--timeout",
+        "10",
+        "--exec-id",
+        "k223-ordinary-09-36fec4c993e3469b92f0e98f63989d31",
+        "--json",
+        "ps -eo pid,ppid,pgid,sid,stat,lstart,etime,args"
+      ],
+      "budget": 30.0,
+      "expected_exit": 0,
+      "expected_stdout": null,
+      "interrupt_after": null,
+      "expected_reason": "exit"
+    },
+    {
+      "name": "ordinary-10",
+      "argv": [
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.k224-build/cli-rs/target/release/testanyware",
+        "agent",
+        "health",
+        "--vm",
+        "k223-linux-03-36fec4c993e3469b92f0e98f63989d31",
+        "--json"
+      ],
+      "budget": 30.0,
+      "expected_exit": 0,
+      "expected_stdout": null,
+      "interrupt_after": null,
+      "expected_reason": "exit"
+    },
+    {
+      "name": "exit-23",
+      "argv": [
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.k224-build/cli-rs/target/release/testanyware",
+        "file",
+        "exec",
+        "--vm",
+        "k223-linux-03-36fec4c993e3469b92f0e98f63989d31",
+        "--timeout",
+        "10",
+        "--exec-id",
+        "k223-exit-23-36fec4c993e3469b92f0e98f63989d31",
+        "--json",
+        "exit 23"
+      ],
+      "budget": 30.0,
+      "expected_exit": 0,
+      "expected_stdout": null,
+      "interrupt_after": null,
+      "expected_reason": "exit"
+    },
+    {
+      "name": "timeout",
+      "argv": [
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.k224-build/cli-rs/target/release/testanyware",
+        "file",
+        "exec",
+        "--vm",
+        "k223-linux-03-36fec4c993e3469b92f0e98f63989d31",
+        "--timeout",
+        "2",
+        "--exec-id",
+        "k223-timeout-36fec4c993e3469b92f0e98f63989d31",
+        "--json",
+        "d=/tmp/taw-k223/timeout\nmkdir -p \"$d\"\nsleep 120 & child=$!\nprintf '%s\\n' \"$child\" > \"$d/child.pid\"\nprintf 'partial\\n' > \"$d/partial\"\nprintf 'partial-out\\n'\nprintf 'partial-err\\n' >&2\nwait"
+      ],
+      "budget": 22.0,
+      "expected_exit": 0,
+      "expected_stdout": null,
+      "interrupt_after": null,
+      "expected_reason": "exit"
+    },
+    {
+      "name": "after-timeout-01",
+      "argv": [
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.k224-build/cli-rs/target/release/testanyware",
+        "file",
+        "exec",
+        "--vm",
+        "k223-linux-03-36fec4c993e3469b92f0e98f63989d31",
+        "--timeout",
+        "10",
+        "--exec-id",
+        "k223-after-timeout-01-36fec4c993e3469b92f0e98f63989d31",
+        "--json",
+        "f=/tmp/taw-k223/timeout/child.pid\nif ! pid=$(cat \"$f\"); then printf 'child pid-file=unreadable\\n'; exit 0; fi\nprintf 'child pid=%s\\n' \"$pid\"\nps -p \"$pid\" -o pid=,ppid=,pgid=,stat=,lstart=,args=\nprintf 'child ps-exit=%s\\n' \"$?\""
+      ],
+      "budget": 30.0,
+      "expected_exit": 0,
+      "expected_stdout": null,
+      "interrupt_after": null,
+      "expected_reason": "exit"
+    },
+    {
+      "name": "after-timeout-02",
+      "argv": [
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.k224-build/cli-rs/target/release/testanyware",
+        "agent",
+        "health",
+        "--vm",
+        "k223-linux-03-36fec4c993e3469b92f0e98f63989d31",
+        "--json"
+      ],
+      "budget": 30.0,
+      "expected_exit": 0,
+      "expected_stdout": null,
+      "interrupt_after": null,
+      "expected_reason": "exit"
+    },
+    {
+      "name": "after-timeout-03",
+      "argv": [
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.k224-build/cli-rs/target/release/testanyware",
+        "file",
+        "exec",
+        "--vm",
+        "k223-linux-03-36fec4c993e3469b92f0e98f63989d31",
+        "--timeout",
+        "10",
+        "--exec-id",
+        "k223-after-timeout-03-36fec4c993e3469b92f0e98f63989d31",
+        "--json",
+        "printf ordinary-ok"
+      ],
+      "budget": 30.0,
+      "expected_exit": 0,
+      "expected_stdout": null,
+      "interrupt_after": null,
+      "expected_reason": "exit"
+    },
+    {
+      "name": "after-timeout-04",
+      "argv": [
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.k224-build/cli-rs/target/release/testanyware",
+        "agent",
+        "health",
+        "--vm",
+        "k223-linux-03-36fec4c993e3469b92f0e98f63989d31",
+        "--json"
+      ],
+      "budget": 30.0,
+      "expected_exit": 0,
+      "expected_stdout": null,
+      "interrupt_after": null,
+      "expected_reason": "exit"
+    },
+    {
+      "name": "after-timeout-05",
+      "argv": [
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.k224-build/cli-rs/target/release/testanyware",
+        "file",
+        "exec",
+        "--vm",
+        "k223-linux-03-36fec4c993e3469b92f0e98f63989d31",
+        "--timeout",
+        "10",
+        "--exec-id",
+        "k223-after-timeout-05-36fec4c993e3469b92f0e98f63989d31",
+        "--json",
+        "f=/tmp/taw-k223/timeout/child.pid\nif ! pid=$(cat \"$f\"); then printf 'child pid-file=unreadable\\n'; exit 0; fi\nprintf 'child pid=%s\\n' \"$pid\"\nps -p \"$pid\" -o pid=,ppid=,pgid=,stat=,lstart=,args=\nprintf 'child ps-exit=%s\\n' \"$?\""
+      ],
+      "budget": 30.0,
+      "expected_exit": 0,
+      "expected_stdout": null,
+      "interrupt_after": null,
+      "expected_reason": "exit"
+    },
+    {
+      "name": "after-timeout-06",
+      "argv": [
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.k224-build/cli-rs/target/release/testanyware",
+        "file",
+        "exec",
+        "--vm",
+        "k223-linux-03-36fec4c993e3469b92f0e98f63989d31",
+        "--timeout",
+        "10",
+        "--exec-id",
+        "k223-after-timeout-06-36fec4c993e3469b92f0e98f63989d31",
+        "--json",
+        "printf ordinary-ok"
+      ],
+      "budget": 30.0,
+      "expected_exit": 0,
+      "expected_stdout": null,
+      "interrupt_after": null,
+      "expected_reason": "exit"
+    },
+    {
+      "name": "after-timeout-07",
+      "argv": [
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.k224-build/cli-rs/target/release/testanyware",
+        "agent",
+        "health",
+        "--vm",
+        "k223-linux-03-36fec4c993e3469b92f0e98f63989d31",
+        "--json"
+      ],
+      "budget": 30.0,
+      "expected_exit": 0,
+      "expected_stdout": null,
+      "interrupt_after": null,
+      "expected_reason": "exit"
+    },
+    {
+      "name": "after-timeout-08",
+      "argv": [
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.k224-build/cli-rs/target/release/testanyware",
+        "file",
+        "exec",
+        "--vm",
+        "k223-linux-03-36fec4c993e3469b92f0e98f63989d31",
+        "--timeout",
+        "10",
+        "--exec-id",
+        "k223-after-timeout-08-36fec4c993e3469b92f0e98f63989d31",
+        "--json",
+        "printf ordinary-ok"
+      ],
+      "budget": 30.0,
+      "expected_exit": 0,
+      "expected_stdout": null,
+      "interrupt_after": null,
+      "expected_reason": "exit"
+    },
+    {
+      "name": "after-timeout-09",
+      "argv": [
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.k224-build/cli-rs/target/release/testanyware",
+        "file",
+        "exec",
+        "--vm",
+        "k223-linux-03-36fec4c993e3469b92f0e98f63989d31",
+        "--timeout",
+        "10",
+        "--exec-id",
+        "k223-after-timeout-09-36fec4c993e3469b92f0e98f63989d31",
+        "--json",
+        "f=/tmp/taw-k223/timeout/child.pid\nif ! pid=$(cat \"$f\"); then printf 'child pid-file=unreadable\\n'; exit 0; fi\nprintf 'child pid=%s\\n' \"$pid\"\nps -p \"$pid\" -o pid=,ppid=,pgid=,stat=,lstart=,args=\nprintf 'child ps-exit=%s\\n' \"$?\""
+      ],
+      "budget": 30.0,
+      "expected_exit": 0,
+      "expected_stdout": null,
+      "interrupt_after": null,
+      "expected_reason": "exit"
+    },
+    {
+      "name": "after-timeout-10",
+      "argv": [
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.k224-build/cli-rs/target/release/testanyware",
+        "agent",
+        "health",
+        "--vm",
+        "k223-linux-03-36fec4c993e3469b92f0e98f63989d31",
+        "--json"
+      ],
+      "budget": 30.0,
+      "expected_exit": 0,
+      "expected_stdout": null,
+      "interrupt_after": null,
+      "expected_reason": "exit"
+    },
+    {
+      "name": "after-timeout-11",
+      "argv": [
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.k224-build/cli-rs/target/release/testanyware",
+        "file",
+        "exec",
+        "--vm",
+        "k223-linux-03-36fec4c993e3469b92f0e98f63989d31",
+        "--timeout",
+        "10",
+        "--exec-id",
+        "k223-after-timeout-11-36fec4c993e3469b92f0e98f63989d31",
+        "--json",
+        "printf ordinary-ok"
+      ],
+      "budget": 30.0,
+      "expected_exit": 0,
+      "expected_stdout": null,
+      "interrupt_after": null,
+      "expected_reason": "exit"
+    },
+    {
+      "name": "after-timeout-12",
+      "argv": [
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.k224-build/cli-rs/target/release/testanyware",
+        "agent",
+        "health",
+        "--vm",
+        "k223-linux-03-36fec4c993e3469b92f0e98f63989d31",
+        "--json"
+      ],
+      "budget": 30.0,
+      "expected_exit": 0,
+      "expected_stdout": null,
+      "interrupt_after": null,
+      "expected_reason": "exit"
+    },
+    {
+      "name": "after-timeout-13",
+      "argv": [
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.k224-build/cli-rs/target/release/testanyware",
+        "file",
+        "exec",
+        "--vm",
+        "k223-linux-03-36fec4c993e3469b92f0e98f63989d31",
+        "--timeout",
+        "10",
+        "--exec-id",
+        "k223-after-timeout-13-36fec4c993e3469b92f0e98f63989d31",
+        "--json",
+        "printf ordinary-ok"
+      ],
+      "budget": 30.0,
+      "expected_exit": 0,
+      "expected_stdout": null,
+      "interrupt_after": null,
+      "expected_reason": "exit"
+    },
+    {
+      "name": "after-timeout-14",
+      "argv": [
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.k224-build/cli-rs/target/release/testanyware",
+        "file",
+        "exec",
+        "--vm",
+        "k223-linux-03-36fec4c993e3469b92f0e98f63989d31",
+        "--timeout",
+        "10",
+        "--exec-id",
+        "k223-after-timeout-14-36fec4c993e3469b92f0e98f63989d31",
+        "--json",
+        "f=/tmp/taw-k223/timeout/child.pid\nif ! pid=$(cat \"$f\"); then printf 'child pid-file=unreadable\\n'; exit 0; fi\nprintf 'child pid=%s\\n' \"$pid\"\nps -p \"$pid\" -o pid=,ppid=,pgid=,stat=,lstart=,args=\nprintf 'child ps-exit=%s\\n' \"$?\""
+      ],
+      "budget": 30.0,
+      "expected_exit": 0,
+      "expected_stdout": null,
+      "interrupt_after": null,
+      "expected_reason": "exit"
+    },
+    {
+      "name": "cancel",
+      "argv": [
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/.venv/bin/python",
+        "-I",
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/acceptance_k223_cancel.py",
+        "--cli",
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.k224-build/cli-rs/target/release/testanyware",
+        "--vm",
+        "k223-linux-03-36fec4c993e3469b92f0e98f63989d31",
+        "--exec-id",
+        "k223-cancel-36fec4c993e3469b92f0e98f63989d31",
+        "--guest-timeout",
+        "20",
+        "--host-margin",
+        "20",
+        "--health-after",
+        "1",
+        "--cancel-after",
+        "2",
+        "--cancel-wait",
+        "5",
+        "--observation",
+        "30",
+        "--command",
+        "d=/tmp/taw-k223/cancel\nmkdir -p \"$d\"\nsleep 120 & child=$!\nprintf '%s\\n' \"$child\" > \"$d/child.pid\"\nprintf 'partial\\n' > \"$d/partial\"\nprintf 'partial-out\\n'\nprintf 'partial-err\\n' >&2\nwait"
+      ],
+      "budget": 45.0,
+      "expected_exit": 0,
+      "expected_stdout": null,
+      "interrupt_after": null,
+      "expected_reason": "exit"
+    },
+    {
+      "name": "after-cancel-01",
+      "argv": [
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.k224-build/cli-rs/target/release/testanyware",
+        "file",
+        "exec",
+        "--vm",
+        "k223-linux-03-36fec4c993e3469b92f0e98f63989d31",
+        "--timeout",
+        "10",
+        "--exec-id",
+        "k223-after-cancel-01-36fec4c993e3469b92f0e98f63989d31",
+        "--json",
+        "f=/tmp/taw-k223/cancel/child.pid\nif ! pid=$(cat \"$f\"); then printf 'child pid-file=unreadable\\n'; exit 0; fi\nprintf 'child pid=%s\\n' \"$pid\"\nps -p \"$pid\" -o pid=,ppid=,pgid=,stat=,lstart=,args=\nprintf 'child ps-exit=%s\\n' \"$?\""
+      ],
+      "budget": 30.0,
+      "expected_exit": 0,
+      "expected_stdout": null,
+      "interrupt_after": null,
+      "expected_reason": "exit"
+    },
+    {
+      "name": "after-cancel-02",
+      "argv": [
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.k224-build/cli-rs/target/release/testanyware",
+        "agent",
+        "health",
+        "--vm",
+        "k223-linux-03-36fec4c993e3469b92f0e98f63989d31",
+        "--json"
+      ],
+      "budget": 30.0,
+      "expected_exit": 0,
+      "expected_stdout": null,
+      "interrupt_after": null,
+      "expected_reason": "exit"
+    },
+    {
+      "name": "after-cancel-03",
+      "argv": [
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.k224-build/cli-rs/target/release/testanyware",
+        "file",
+        "exec",
+        "--vm",
+        "k223-linux-03-36fec4c993e3469b92f0e98f63989d31",
+        "--timeout",
+        "10",
+        "--exec-id",
+        "k223-after-cancel-03-36fec4c993e3469b92f0e98f63989d31",
+        "--json",
+        "printf ordinary-ok"
+      ],
+      "budget": 30.0,
+      "expected_exit": 0,
+      "expected_stdout": null,
+      "interrupt_after": null,
+      "expected_reason": "exit"
+    },
+    {
+      "name": "after-cancel-04",
+      "argv": [
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.k224-build/cli-rs/target/release/testanyware",
+        "agent",
+        "health",
+        "--vm",
+        "k223-linux-03-36fec4c993e3469b92f0e98f63989d31",
+        "--json"
+      ],
+      "budget": 30.0,
+      "expected_exit": 0,
+      "expected_stdout": null,
+      "interrupt_after": null,
+      "expected_reason": "exit"
+    },
+    {
+      "name": "after-cancel-05",
+      "argv": [
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.k224-build/cli-rs/target/release/testanyware",
+        "file",
+        "exec",
+        "--vm",
+        "k223-linux-03-36fec4c993e3469b92f0e98f63989d31",
+        "--timeout",
+        "10",
+        "--exec-id",
+        "k223-after-cancel-05-36fec4c993e3469b92f0e98f63989d31",
+        "--json",
+        "f=/tmp/taw-k223/cancel/child.pid\nif ! pid=$(cat \"$f\"); then printf 'child pid-file=unreadable\\n'; exit 0; fi\nprintf 'child pid=%s\\n' \"$pid\"\nps -p \"$pid\" -o pid=,ppid=,pgid=,stat=,lstart=,args=\nprintf 'child ps-exit=%s\\n' \"$?\""
+      ],
+      "budget": 30.0,
+      "expected_exit": 0,
+      "expected_stdout": null,
+      "interrupt_after": null,
+      "expected_reason": "exit"
+    },
+    {
+      "name": "after-cancel-06",
+      "argv": [
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.k224-build/cli-rs/target/release/testanyware",
+        "file",
+        "exec",
+        "--vm",
+        "k223-linux-03-36fec4c993e3469b92f0e98f63989d31",
+        "--timeout",
+        "10",
+        "--exec-id",
+        "k223-after-cancel-06-36fec4c993e3469b92f0e98f63989d31",
+        "--json",
+        "printf ordinary-ok"
+      ],
+      "budget": 30.0,
+      "expected_exit": 0,
+      "expected_stdout": null,
+      "interrupt_after": null,
+      "expected_reason": "exit"
+    },
+    {
+      "name": "after-cancel-07",
+      "argv": [
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.k224-build/cli-rs/target/release/testanyware",
+        "agent",
+        "health",
+        "--vm",
+        "k223-linux-03-36fec4c993e3469b92f0e98f63989d31",
+        "--json"
+      ],
+      "budget": 30.0,
+      "expected_exit": 0,
+      "expected_stdout": null,
+      "interrupt_after": null,
+      "expected_reason": "exit"
+    },
+    {
+      "name": "after-cancel-08",
+      "argv": [
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.k224-build/cli-rs/target/release/testanyware",
+        "file",
+        "exec",
+        "--vm",
+        "k223-linux-03-36fec4c993e3469b92f0e98f63989d31",
+        "--timeout",
+        "10",
+        "--exec-id",
+        "k223-after-cancel-08-36fec4c993e3469b92f0e98f63989d31",
+        "--json",
+        "printf ordinary-ok"
+      ],
+      "budget": 30.0,
+      "expected_exit": 0,
+      "expected_stdout": null,
+      "interrupt_after": null,
+      "expected_reason": "exit"
+    },
+    {
+      "name": "after-cancel-09",
+      "argv": [
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.k224-build/cli-rs/target/release/testanyware",
+        "file",
+        "exec",
+        "--vm",
+        "k223-linux-03-36fec4c993e3469b92f0e98f63989d31",
+        "--timeout",
+        "10",
+        "--exec-id",
+        "k223-after-cancel-09-36fec4c993e3469b92f0e98f63989d31",
+        "--json",
+        "f=/tmp/taw-k223/cancel/child.pid\nif ! pid=$(cat \"$f\"); then printf 'child pid-file=unreadable\\n'; exit 0; fi\nprintf 'child pid=%s\\n' \"$pid\"\nps -p \"$pid\" -o pid=,ppid=,pgid=,stat=,lstart=,args=\nprintf 'child ps-exit=%s\\n' \"$?\""
+      ],
+      "budget": 30.0,
+      "expected_exit": 0,
+      "expected_stdout": null,
+      "interrupt_after": null,
+      "expected_reason": "exit"
+    },
+    {
+      "name": "after-cancel-10",
+      "argv": [
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.k224-build/cli-rs/target/release/testanyware",
+        "agent",
+        "health",
+        "--vm",
+        "k223-linux-03-36fec4c993e3469b92f0e98f63989d31",
+        "--json"
+      ],
+      "budget": 30.0,
+      "expected_exit": 0,
+      "expected_stdout": null,
+      "interrupt_after": null,
+      "expected_reason": "exit"
+    },
+    {
+      "name": "after-cancel-11",
+      "argv": [
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.k224-build/cli-rs/target/release/testanyware",
+        "file",
+        "exec",
+        "--vm",
+        "k223-linux-03-36fec4c993e3469b92f0e98f63989d31",
+        "--timeout",
+        "10",
+        "--exec-id",
+        "k223-after-cancel-11-36fec4c993e3469b92f0e98f63989d31",
+        "--json",
+        "printf ordinary-ok"
+      ],
+      "budget": 30.0,
+      "expected_exit": 0,
+      "expected_stdout": null,
+      "interrupt_after": null,
+      "expected_reason": "exit"
+    },
+    {
+      "name": "after-cancel-12",
+      "argv": [
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.k224-build/cli-rs/target/release/testanyware",
+        "agent",
+        "health",
+        "--vm",
+        "k223-linux-03-36fec4c993e3469b92f0e98f63989d31",
+        "--json"
+      ],
+      "budget": 30.0,
+      "expected_exit": 0,
+      "expected_stdout": null,
+      "interrupt_after": null,
+      "expected_reason": "exit"
+    },
+    {
+      "name": "after-cancel-13",
+      "argv": [
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.k224-build/cli-rs/target/release/testanyware",
+        "file",
+        "exec",
+        "--vm",
+        "k223-linux-03-36fec4c993e3469b92f0e98f63989d31",
+        "--timeout",
+        "10",
+        "--exec-id",
+        "k223-after-cancel-13-36fec4c993e3469b92f0e98f63989d31",
+        "--json",
+        "printf ordinary-ok"
+      ],
+      "budget": 30.0,
+      "expected_exit": 0,
+      "expected_stdout": null,
+      "interrupt_after": null,
+      "expected_reason": "exit"
+    },
+    {
+      "name": "after-cancel-14",
+      "argv": [
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.k224-build/cli-rs/target/release/testanyware",
+        "file",
+        "exec",
+        "--vm",
+        "k223-linux-03-36fec4c993e3469b92f0e98f63989d31",
+        "--timeout",
+        "10",
+        "--exec-id",
+        "k223-after-cancel-14-36fec4c993e3469b92f0e98f63989d31",
+        "--json",
+        "f=/tmp/taw-k223/cancel/child.pid\nif ! pid=$(cat \"$f\"); then printf 'child pid-file=unreadable\\n'; exit 0; fi\nprintf 'child pid=%s\\n' \"$pid\"\nps -p \"$pid\" -o pid=,ppid=,pgid=,stat=,lstart=,args=\nprintf 'child ps-exit=%s\\n' \"$?\""
+      ],
+      "budget": 30.0,
+      "expected_exit": 0,
+      "expected_stdout": null,
+      "interrupt_after": null,
+      "expected_reason": "exit"
+    },
+    {
+      "name": "interrupt",
+      "argv": [
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.k224-build/cli-rs/target/release/testanyware",
+        "file",
+        "exec",
+        "--vm",
+        "k223-linux-03-36fec4c993e3469b92f0e98f63989d31",
+        "--timeout",
+        "20",
+        "--exec-id",
+        "k223-interrupt-36fec4c993e3469b92f0e98f63989d31",
+        "--json",
+        "d=/tmp/taw-k223/interrupt\nmkdir -p \"$d\"\nsleep 120 & child=$!\nprintf '%s\\n' \"$child\" > \"$d/child.pid\"\nprintf 'partial\\n' > \"$d/partial\"\nprintf 'partial-out\\n'\nprintf 'partial-err\\n' >&2\nwait"
+      ],
+      "budget": 40.0,
+      "expected_exit": -15,
+      "expected_stdout": null,
+      "interrupt_after": 2.0,
+      "expected_reason": "interrupted"
+    },
+    {
+      "name": "interrupt-child",
+      "argv": [
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.k224-build/cli-rs/target/release/testanyware",
+        "file",
+        "exec",
+        "--vm",
+        "k223-linux-03-36fec4c993e3469b92f0e98f63989d31",
+        "--timeout",
+        "10",
+        "--exec-id",
+        "k223-interrupt-child-36fec4c993e3469b92f0e98f63989d31",
+        "--json",
+        "f=/tmp/taw-k223/interrupt/child.pid\nif ! pid=$(cat \"$f\"); then printf 'child pid-file=unreadable\\n'; exit 0; fi\nprintf 'child pid=%s\\n' \"$pid\"\nn=0\nwhile :; do\nn=$((n + 1))\nps -p \"$pid\" -o pid=,ppid=,pgid=,stat=,lstart=,args=\ne=$?\nprintf 'child ps-exit=%s\\n' \"$e\"\nif [ \"$e\" -ne 0 ] || [ \"$n\" -ge 41 ]; then break; fi\nsleep 0.1\ndone"
+      ],
+      "budget": 30.0,
+      "expected_exit": 0,
+      "expected_stdout": null,
+      "interrupt_after": null,
+      "expected_reason": "exit"
+    },
+    {
+      "name": "interrupt-health",
+      "argv": [
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.k224-build/cli-rs/target/release/testanyware",
+        "agent",
+        "health",
+        "--vm",
+        "k223-linux-03-36fec4c993e3469b92f0e98f63989d31",
+        "--json"
+      ],
+      "budget": 30.0,
+      "expected_exit": 0,
+      "expected_stdout": null,
+      "interrupt_after": null,
+      "expected_reason": "exit"
+    },
+    {
+      "name": "interrupt-fallback",
+      "argv": [
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.k224-build/cli-rs/target/release/testanyware",
+        "file",
+        "cancel",
+        "--vm",
+        "k223-linux-03-36fec4c993e3469b92f0e98f63989d31",
+        "--exec-id",
+        "k223-interrupt-36fec4c993e3469b92f0e98f63989d31",
+        "--wait",
+        "5",
+        "--json"
+      ],
+      "budget": 30.0,
+      "expected_exit": 0,
+      "expected_stdout": null,
+      "interrupt_after": null,
+      "expected_reason": "exit"
+    },
+    {
+      "name": "capture",
+      "argv": [
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.k224-build/cli-rs/target/release/testanyware",
+        "file",
+        "exec",
+        "--vm",
+        "k223-linux-03-36fec4c993e3469b92f0e98f63989d31",
+        "--timeout",
+        "10",
+        "--exec-id",
+        "k223-capture-36fec4c993e3469b92f0e98f63989d31",
+        "--json",
+        "bash /tmp/vmfit-k15/guest.sh intact"
+      ],
+      "budget": 30.0,
+      "expected_exit": 0,
+      "expected_stdout": null,
+      "interrupt_after": null,
+      "expected_reason": "exit"
+    },
+    {
+      "name": "download-stdout-bin",
+      "argv": [
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.k224-build/cli-rs/target/release/testanyware",
+        "file",
+        "download",
+        "--vm",
+        "k223-linux-03-36fec4c993e3469b92f0e98f63989d31",
+        "/tmp/vmfit-k15/stdout.bin",
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/lifecycle-acceptance-k225/trial-01/linux-03/downloads/stdout.bin",
+        "--json"
+      ],
+      "budget": 150.0,
+      "expected_exit": 0,
+      "expected_stdout": null,
+      "interrupt_after": null,
+      "expected_reason": "exit"
+    },
+    {
+      "name": "download-stderr-bin",
+      "argv": [
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.k224-build/cli-rs/target/release/testanyware",
+        "file",
+        "download",
+        "--vm",
+        "k223-linux-03-36fec4c993e3469b92f0e98f63989d31",
+        "/tmp/vmfit-k15/stderr.bin",
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/lifecycle-acceptance-k225/trial-01/linux-03/downloads/stderr.bin",
+        "--json"
+      ],
+      "budget": 150.0,
+      "expected_exit": 0,
+      "expected_stdout": null,
+      "interrupt_after": null,
+      "expected_reason": "exit"
+    },
+    {
+      "name": "download-artifact-bin",
+      "argv": [
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.k224-build/cli-rs/target/release/testanyware",
+        "file",
+        "download",
+        "--vm",
+        "k223-linux-03-36fec4c993e3469b92f0e98f63989d31",
+        "/tmp/vmfit-k15/artifact.bin",
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/lifecycle-acceptance-k225/trial-01/linux-03/downloads/artifact.bin",
+        "--json"
+      ],
+      "budget": 150.0,
+      "expected_exit": 0,
+      "expected_stdout": null,
+      "interrupt_after": null,
+      "expected_reason": "exit"
+    },
+    {
+      "name": "download-status-txt",
+      "argv": [
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.k224-build/cli-rs/target/release/testanyware",
+        "file",
+        "download",
+        "--vm",
+        "k223-linux-03-36fec4c993e3469b92f0e98f63989d31",
+        "/tmp/vmfit-k15/status.txt",
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/lifecycle-acceptance-k225/trial-01/linux-03/downloads/status.txt",
+        "--json"
+      ],
+      "budget": 150.0,
+      "expected_exit": 0,
+      "expected_stdout": null,
+      "interrupt_after": null,
+      "expected_reason": "exit"
+    },
+    {
+      "name": "download-timeout-partial",
+      "argv": [
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.k224-build/cli-rs/target/release/testanyware",
+        "file",
+        "download",
+        "--vm",
+        "k223-linux-03-36fec4c993e3469b92f0e98f63989d31",
+        "/tmp/taw-k223/timeout/partial",
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/lifecycle-acceptance-k225/trial-01/linux-03/downloads/timeout.partial",
+        "--json"
+      ],
+      "budget": 150.0,
+      "expected_exit": 0,
+      "expected_stdout": null,
+      "interrupt_after": null,
+      "expected_reason": "exit"
+    },
+    {
+      "name": "download-cancel-partial",
+      "argv": [
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.k224-build/cli-rs/target/release/testanyware",
+        "file",
+        "download",
+        "--vm",
+        "k223-linux-03-36fec4c993e3469b92f0e98f63989d31",
+        "/tmp/taw-k223/cancel/partial",
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/lifecycle-acceptance-k225/trial-01/linux-03/downloads/cancel.partial",
+        "--json"
+      ],
+      "budget": 150.0,
+      "expected_exit": 0,
+      "expected_stdout": null,
+      "interrupt_after": null,
+      "expected_reason": "exit"
+    },
+    {
+      "name": "download-interrupt-partial",
+      "argv": [
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.k224-build/cli-rs/target/release/testanyware",
+        "file",
+        "download",
+        "--vm",
+        "k223-linux-03-36fec4c993e3469b92f0e98f63989d31",
+        "/tmp/taw-k223/interrupt/partial",
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/lifecycle-acceptance-k225/trial-01/linux-03/downloads/interrupt.partial",
+        "--json"
+      ],
+      "budget": 150.0,
+      "expected_exit": 0,
+      "expected_stdout": null,
+      "interrupt_after": null,
+      "expected_reason": "exit"
+    },
+    {
+      "name": "download-missing",
+      "argv": [
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.k224-build/cli-rs/target/release/testanyware",
+        "file",
+        "download",
+        "--vm",
+        "k223-linux-03-36fec4c993e3469b92f0e98f63989d31",
+        "/tmp/vmfit-k15/does-not-exist",
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/lifecycle-acceptance-k225/trial-01/linux-03/downloads/missing.bin",
+        "--json"
+      ],
+      "budget": 150.0,
+      "expected_exit": 1,
+      "expected_stdout": null,
+      "interrupt_after": null,
+      "expected_reason": "exit"
+    }
+  ],
+  "resources": [
+    {
+      "kind": "vm",
+      "identity": "k223-linux-03-36fec4c993e3469b92f0e98f63989d31",
+      "acquire": {
+        "name": "acquire",
+        "argv": [
+          "/Users/antony/Development/AbstractingComputers/TestAnyware.k224-build/cli-rs/target/release/testanyware",
+          "vm",
+          "start",
+          "--platform",
+          "linux",
+          "--base",
+          "testanyware-golden-linux-24.04-k224",
+          "--id",
+          "k223-linux-03-36fec4c993e3469b92f0e98f63989d31",
+          "--json"
+        ],
+        "budget": 420.0,
+        "expected_exit": 0,
+        "expected_stdout": null,
+        "interrupt_after": null,
+        "expected_reason": "exit"
+      },
+      "cleanup": {
+        "name": "cleanup",
+        "argv": [
+          "/Users/antony/Development/AbstractingComputers/TestAnyware.k224-build/cli-rs/target/release/testanyware",
+          "file",
+          "exec",
+          "--vm",
+          "k223-linux-03-36fec4c993e3469b92f0e98f63989d31",
+          "--timeout",
+          "10",
+          "--exec-id",
+          "k223-cleanup-36fec4c993e3469b92f0e98f63989d31",
+          "--json",
+          "state() {\n  if err=$(kill -0 \"$1\" 2>&1); then echo alive\n  else case \"$err\" in\n    *[Nn]o\\ such\\ process*) echo gone ;;\n    *) echo unknown ;;\n  esac; fi\n}\nwait_gone() {\n  i=0\n  while [ \"$(state \"$1\")\" = alive ] && [ \"$i\" -lt \"$2\" ]; do\n    sleep 0.1; i=$((i + 1))\n  done\n}\noutcome=confirmed\nfor f in /tmp/taw-k223/timeout/child.pid /tmp/taw-k223/cancel/child.pid /tmp/taw-k223/interrupt/child.pid; do\n  [ -f \"$f\" ] || continue\n  pid=$(cat \"$f\")\n  cmd=$(ps -p \"$pid\" -o args= | sed 's/ *$//')\n  printf '%s pid=%s command=%s\\n' \"$f\" \"$pid\" \"$cmd\"\n  if [ \"$cmd\" != \"sleep 120\" ]; then\n    s=$(state \"$pid\")\n    if [ -z \"$cmd\" ] && [ \"$s\" = gone ]; then printf 'gone pid=%s\\n' \"$pid\"\n    elif [ -n \"$cmd\" ] && [ \"$s\" = alive ]; then printf 'other pid=%s\\n' \"$pid\"\n    else printf 'unknown pid=%s state=%s\\n' \"$pid\" \"$s\"; outcome=uncertain; fi\n    continue\n  fi\n  kill -TERM \"$pid\"\n  wait_gone \"$pid\" 20\n  action=terminated\n  if [ \"$(state \"$pid\")\" = alive ]; then\n    kill -KILL \"$pid\"; action=killed\n    wait_gone \"$pid\" 5\n  fi\n  s=$(state \"$pid\")\n  if [ \"$s\" = gone ]; then printf '%s pid=%s\\n' \"$action\" \"$pid\"\n  else printf 'survived pid=%s state=%s\\n' \"$pid\" \"$s\"; outcome=uncertain; fi\ndone\nprintf 'cleanup %s\\n' \"$outcome\"\n[ \"$outcome\" = confirmed ]"
+        ],
+        "budget": 26.0,
+        "expected_exit": 0,
+        "expected_stdout": null,
+        "interrupt_after": null,
+        "expected_reason": "exit"
+      },
+      "dispose": {
+        "name": "dispose",
+        "argv": [
+          "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/.venv/bin/python",
+          "-I",
+          "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/scripts/vm_inventory.py",
+          "dispose",
+          "k223-linux-03-36fec4c993e3469b92f0e98f63989d31",
+          "--cli",
+          "/Users/antony/Development/AbstractingComputers/TestAnyware.k224-build/cli-rs/target/release/testanyware",
+          "--tart",
+          "/opt/homebrew/bin/tart",
+          "--timeout",
+          "5",
+          "--stop-timeout",
+          "30"
+        ],
+        "budget": 41.0,
+        "expected_exit": 0,
+        "expected_stdout": null,
+        "interrupt_after": null,
+        "expected_reason": "exit"
+      },
+      "inspect": {
+        "name": "inspect",
+        "argv": [
+          "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/.venv/bin/python",
+          "-I",
+          "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/scripts/vm_inventory.py",
+          "absent",
+          "k223-linux-03-36fec4c993e3469b92f0e98f63989d31",
+          "--cli",
+          "/Users/antony/Development/AbstractingComputers/TestAnyware.k224-build/cli-rs/target/release/testanyware",
+          "--tart",
+          "/opt/homebrew/bin/tart",
+          "--timeout",
+          "25"
+        ],
+        "budget": 55.0,
+        "expected_exit": 0,
+        "expected_stdout": "616273656e74206b3232332d6c696e75782d30332d33366665633463393933653334363962393266306539386636333938396433310a",
+        "interrupt_after": null,
+        "expected_reason": "exit"
+      }
+    }
+  ],
+  "subjects": [
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/acceptance_k223.py",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/acceptance_k223_check.py",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/completion_k186_check.py",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/controller.py",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/acceptance_k223_cancel.py",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/acceptance_k223_app.py",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/linux_k204.py",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/routes_k19.py",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/timeout_k4.py",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/linux-timeout-live-k204/fixture-r5/cases.json",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/linux-timeout-live-k204/fixture-r5/frozen.json",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/linux-timeout-live-k204/fixture-r5/guest.sh",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/linux-timeout-live-k204/fixture-r5/lesson",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/scripts/vm_inventory.py",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/Taskfile.yml",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/acceptance-preparation-k244/manifest.json",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.k224-build/cli-rs/target/release/testanyware",
+    "/opt/homebrew/bin/tart",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/.venv/bin/python",
+    "/Users/antony/.config/testanyware/config.rhai",
+    "/Users/antony/.tart/vms/testanyware-golden-linux-24.04-k224/config.json",
+    "/Users/antony/.tart/vms/testanyware-golden-linux-24.04-k224/nvram.bin",
+    "/Users/antony/.tart/vms/testanyware-golden-macos-27-k224/config.json",
+    "/Users/antony/.tart/vms/testanyware-golden-macos-27-k224/nvram.bin",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/Taskfile.yml",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/.venv/bin/python",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/acceptance_k223.py",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/acceptance_k223_app.py",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/acceptance_k223_cancel.py",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/acceptance_k223_check.py",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/completion_k186_check.py",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/controller.py",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/inspection.py",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/linux_k204.py",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/pyproject.toml",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/retention.py",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/routes_k19.py",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/storage_client.py",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/timeout_k4.py",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/turns.py",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/uv.lock",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/worker_capture.py",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/writer.py",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/scripts/vm_inventory.py",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.k224-build/agents/macos/.build/release/testanyware-agent",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.k224-build/cli-rs/target/app/dev/TestAnyware Dev.app/Contents/MacOS/testanyware-app",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.k224-build/cli-rs/target/debug/testanyware",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.k224-build/cli-rs/target/release/testanyware",
+    "/opt/homebrew/bin/tart"
+  ],
+  "term_grace": 2.0,
+  "kill_wait": 2.0,
+  "bootstrap": {
+    "readiness": 1,
+    "term_grace": 2,
+    "kill_reap": 2
+  },
+  "failure_bounds": {
+    "term_grace": 2,
+    "kill_reap": 2
+  },
+  "close_bounds": {
+    "grace": 0.05,
+    "kill_reap": 2
+  },
+  "readiness_bound": 5.0,
+  "intent_gate": 2.0,
+  "publication_window": 10.0,
+  "outbox_cap": 67108864
+}

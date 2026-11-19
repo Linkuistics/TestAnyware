@@ -1,0 +1,45 @@
+{
+  "command": "f=/tmp/taw-k223/interrupt/child.pid\nif ! pid=$(cat \"$f\"); then printf 'child pid-file=unreadable\\n'; exit 0; fi\nprintf 'child pid=%s\\n' \"$pid\"\nn=0\nwhile :; do\nn=$((n + 1))\nps -p \"$pid\" -o pid=,ppid=,pgid=,stat=,lstart=,args=\ne=$?\nprintf 'child ps-exit=%s\\n' \"$e\"\nif [ \"$e\" -ne 0 ] || [ \"$n\" -ge 41 ]; then break; fi\nsleep 0.1\ndone",
+  "evidence": {
+    "stderr": {
+      "base64": "",
+      "bytes": 0,
+      "capture": "complete",
+      "file_bytes": 0,
+      "reason": null,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "stdout": {
+      "base64": "Y2hpbGQgcGlkPTIxNDUKY2hpbGQgcHMtZXhpdD0xCg==",
+      "bytes": 31,
+      "capture": "complete",
+      "file_bytes": 31,
+      "reason": null,
+      "sha256": "29cb02123286836ff5f0bdee22e322a8842da14aa7ea3808cc563cfd4ed06d01"
+    }
+  },
+  "exec_id": "k223-interrupt-child-ccadbd6284d24901975ffa9d30b49bc4",
+  "exit_code": 0,
+  "legacy_projection": "linux",
+  "lifecycle": {
+    "duration_ms": 15,
+    "finalised_after_ms": 0,
+    "group_id": 2153,
+    "leader_pid": 2153,
+    "leader_start_time": "2855",
+    "owner_lateness_ms": 0,
+    "spawn_ms": 1
+  },
+  "ok": true,
+  "outcome": {
+    "exit_code": 0,
+    "kind": "exited"
+  },
+  "record": "agent",
+  "remaining_group": "none",
+  "schema_version": "1.0",
+  "stderr": "",
+  "stdout": "child pid=2145\nchild ps-exit=1",
+  "termination": null,
+  "timed_out": false
+}
