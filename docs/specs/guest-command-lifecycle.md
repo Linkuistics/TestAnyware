@@ -756,6 +756,45 @@ Every root case, byte oracle and ceiling applies. A defect fails the trial. A
 revised candidate starts a new trial. A baseline or deterministic pass never
 replaces acceptance. The historical result of 0 of 10 stays unchanged.
 
+## Release
+
+Release 2.9.0 carries this contract. The tag `v2.9.0` names the commit
+`55af0aa8`, which merges the delivery branch with `main` after release 2.8.0.
+The GitHub release and `linkuistics/taps` hold the artifacts of that build.
+
+The acceptance trial `trial-01` passed 10 of 10 on 2026-11-19, at the source
+commit `fee86f92`. The trees `agents/` and `cli-rs/` of the release commit
+equal those of that commit. The Linux agent of the release has the trial's
+source files. The macOS agent of the release is a new build of the same
+source.
+
+The candidate passed notarisation, `release:app-verify`, the Linux host
+harness and `release:upgrade-check` from a throwaway 2.8.99. Two runs of the
+harness failed first. The first run lacked the Local Network grant of the new
+executable. In the second, a macOS guest never showed Finder's menu bar
+within 120 s, and the cause is unknown. The first snapshot of the upgrade
+check also failed once, and that cause is unknown too. The log of leaf
+`lifecycle-release-k226` keeps each failed run.
+
+### How new agents reach a consumer's guests
+
+A guest gets its agent only when its golden is built. The formula installs
+the agents under `share/testanyware/agents`, and `vm create-golden` reads
+them from there. No command replaces the agent of an existing golden, and
+this release replaces no golden.
+
+So a consumer does these steps:
+
+1. Upgrade the formula and the cask to 2.9.0.
+2. Build each golden again with `vm create-golden --platform macos` or
+   `--platform linux`. Use `--name` to keep the old golden beside the new
+   one, or `vm delete` the old golden first.
+3. Start clones of the new golden. Their agents give the full contract.
+
+A clone of an old golden keeps its old agent. Then the Host CLI 2.9.0 reads
+the legacy record, as "Compatibility and version skew" states. It reports
+`outcome` as unknown and offers no cancellation.
+
 ## Decisions
 
 - [ADR-0023](../adr/0023-guest-command-outcome-is-a-typed-record.md): the outcome is a typed record, separate from transport status. Its legacy fields keep each platform's values.
