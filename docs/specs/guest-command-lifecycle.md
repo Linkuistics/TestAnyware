@@ -795,6 +795,12 @@ A clone of an old golden keeps its old agent. Then the Host CLI 2.9.0 reads
 the legacy record, as "Compatibility and version skew" states. It reports
 `outcome` as unknown and offers no cancellation.
 
+### Handoff
+
+The durable handoff and the resource audit of step 8 are in
+[`exec-reliability-handoff.md`](../experiments/exec-reliability-handoff.md).
+It also states what the tutorial trial of Ravel-Strategies must run again.
+
 ## Decisions
 
 - [ADR-0023](../adr/0023-guest-command-outcome-is-a-typed-record.md): the outcome is a typed record, separate from transport status. Its legacy fields keep each platform's values.

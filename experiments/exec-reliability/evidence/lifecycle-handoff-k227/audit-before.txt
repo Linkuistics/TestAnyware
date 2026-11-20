@@ -1,0 +1,245 @@
+# k227 resource audit, before disposal
+2026-11-20T08:50:11Z
+## tart list
+Source Name                                                                                              Disk  Size  Accessed       State  
+local  koine-launchers-prepared                                                                          50 GB 43 GB 3 weeks ago    stopped
+local  testanyware-base-macos-27                                                                         50 GB 31 GB 1 day ago      stopped
+local  testanyware-golden-linux-24.04                                                                    20 GB 9 GB  19 hours ago   stopped
+local  testanyware-golden-linux-24.04-k224                                                               50 GB 9 GB  23 hours ago   stopped
+local  testanyware-golden-macos-27                                                                       50 GB 33 GB 17 minutes ago stopped
+local  testanyware-golden-macos-27-k224                                                                  50 GB 34 GB 23 hours ago   stopped
+local  testanyware-golden-macos-tahoe                                                                    50 GB 29 GB 3 days ago     stopped
+OCI    ghcr.io/cirruslabs/ubuntu:24.04                                                                   20 GB 5 GB  4 weeks ago    stopped
+OCI    ghcr.io/cirruslabs/ubuntu@sha256:51b493a05e4bc6f21c5c5052cffc1b26b5cea1d76847f5db10b97da90c16e58c 20 GB 5 GB  1 day ago      stopped
+## testanyware vm list --json
+{
+  "items": [
+    {
+      "agent": null,
+      "backend": "qemu",
+      "kind": "golden",
+      "name": "testanyware-golden-windows-11",
+      "pid": null,
+      "platform": "windows",
+      "vnc": null
+    },
+    {
+      "agent": null,
+      "backend": "qemu",
+      "kind": "golden",
+      "name": "testanyware-golden-windows-11-pwfix",
+      "pid": null,
+      "platform": "windows",
+      "vnc": null
+    },
+    {
+      "agent": null,
+      "backend": "tart",
+      "kind": "golden",
+      "name": "testanyware-golden-linux-24.04",
+      "pid": null,
+      "platform": "linux",
+      "vnc": null
+    },
+    {
+      "agent": null,
+      "backend": "tart",
+      "kind": "golden",
+      "name": "testanyware-golden-linux-24.04-k224",
+      "pid": null,
+      "platform": "linux",
+      "vnc": null
+    },
+    {
+      "agent": null,
+      "backend": "tart",
+      "kind": "golden",
+      "name": "testanyware-golden-macos-27",
+      "pid": null,
+      "platform": "macos",
+      "vnc": null
+    },
+    {
+      "agent": null,
+      "backend": "tart",
+      "kind": "golden",
+      "name": "testanyware-golden-macos-27-k224",
+      "pid": null,
+      "platform": "macos",
+      "vnc": null
+    },
+    {
+      "agent": null,
+      "backend": "tart",
+      "kind": "golden",
+      "name": "testanyware-golden-macos-tahoe",
+      "pid": null,
+      "platform": "macos",
+      "vnc": null
+    }
+  ],
+  "ok": true,
+  "returned": 7,
+  "schema_version": "1.0",
+  "total": 7,
+  "truncated": false
+}
+## testanyware vm slots --json
+{
+  "contention": null,
+  "holders": [],
+  "limit": 2,
+  "observed_at": 1795164612,
+  "ok": true,
+  "queue": [],
+  "schema_version": "1.0",
+  "slots": 2,
+  "unanswered_since": null
+}
+## jj workspace list
+default: ../TestAnyware mqzkltpz f3506cb3 (empty) (no description set)
+gh-issue-14 (current): . tolylrvk 5619a6bd (no description set)
+k224-build: ../TestAnyware.k224-build wnmyrvpn 2aa405a4 (empty) (no description set)
+## owned residual processes
+  PID  PPID  PGID STARTED                      STAT COMMAND
+64549     1 64549 Mon 16 Nov 15:25:50 2026     Ss   /Users/antony/.cache/uv/builds-v0/.tmpFwgTGd/bin/python -m pytest -vv -k production_worker_retirement_overlaps_owned_teardown --junitxml=/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/worker-overlap-k146/skip-companion-v2/pytest.xml
+64570     1 64570 Mon 16 Nov 15:25:50 2026     Ss   /Users/antony/.cache/uv/builds-v0/.tmpFwgTGd/bin/python -m pytest -vv -k production_worker_retirement_overlaps_owned_teardown --junitxml=/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/worker-overlap-k146/skip-companion-v2/pytest.xml
+64602     1 64602 Mon 16 Nov 15:25:51 2026     Ss   /Users/antony/.cache/uv/builds-v0/.tmpFwgTGd/bin/python -m pytest -vv -k production_worker_retirement_overlaps_owned_teardown --junitxml=/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/worker-overlap-k146/skip-companion-v2/pytest.xml
+64617     1 64617 Mon 16 Nov 15:25:52 2026     Ss   /Users/antony/.cache/uv/builds-v0/.tmpFwgTGd/bin/python -m pytest -vv -k production_worker_retirement_overlaps_owned_teardown --junitxml=/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/worker-overlap-k146/skip-companion-v2/pytest.xml
+70224     1 70224 Wed 18 Nov 13:36:32 2026     S    /Applications/Xcode.app/Contents/Developer/usr/bin/xctest -XCTest TestAnywareAgentTests.OwnedProcessFixtureTests/testCleanupStopsChildWhenTrackIsCancelled,TestAnywareAgentTests.OwnedProcessFixtureTests/testRefusesProcessInAnotherSession,TestAnywareAgentTests.OwnedProcessFixtureTests/testRefusesProcessThatStartedBeforeTheFixture,TestAnywareAgentTests.OwnedProcessFixtureTests/testRefusesTheTestProcess /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/agents/macos/.build/out/Products/Debug/TestAnywareAgentTests.xctest
+## k224 exports
+.rw-r--r--@ 4.9G antony 18 Nov 23:24 testanyware-golden-linux-24.04-k224.tvm
+.rw-r--r--@  27G antony 18 Nov 23:24 testanyware-golden-macos-27-k224.tvm
+## sizes
+ 12G	../TestAnyware.k224-build
+ 29G	../TestAnyware.k224-exports
+ 17G	/private/tmp/claude-501/-Users-antony-Development-AbstractingComputers-TestAnyware-gh-issue-14
+206M	target/candidates/v2.9.0
+482M	target/candidates/v2.9.0.checks
+## session scratch directories
+00c2d61d-bd31-4dd1-9d06-e07da9f0e7d6
+09c7c1b1-8447-4f58-aa2e-ce5fea947a87
+1f28ae5e-ad5a-4434-a42c-bc27ba89d1dc
+3bcce232-4685-4e9a-b847-d6ab8ba38b74
+4d75d428-1379-40a7-8f74-bef176b4b715
+5aa0c7ac-b8e1-4189-b328-57f5b8c70c8e
+5f0908b7-6ab2-4dc4-9867-41755c808772
+6a25b18b-de28-460f-984b-c9bc7df9d5ba
+6c96d5d6-e6b2-47f4-80d1-a13a2dc6dcd9
+6cd80d5c-6a48-4d90-9f42-123cbb80f16b
+8bbd8e64-86ed-449f-a7c9-5c28c7985aad
+8c0ea8da-4e97-46da-839f-768cd026036b
+8c0121fd-2b1b-492d-8ca9-af6d0713b6f2
+8c5db40d-37c9-4efd-9bcf-c539b8b38557
+8ed488e1-61e5-45cd-8d66-410f3e65b619
+9b4d4640-7999-4718-bffc-817df4aad0ec
+9c9ffbd1-674c-4800-ac3b-c1e18ff61b3e
+27b0211c-b8db-4a3c-9dc4-fe3299839bec
+34abf47b-a114-4380-a19b-383a58f7979f
+34eb4215-2919-4693-81ed-d3f7b66fba71
+40aa5619-9c2c-4e82-8b65-cda09f2fedfd
+45a3faf9-e8f6-4bfe-bd67-e7560cda21a2
+47f21f2a-21d3-427a-9d3d-b1817d9ab529
+54fb3a24-3102-4797-835e-8b014b90af54
+63ae91bd-8a1b-4cb1-a459-2a8fddc65811
+76cebb03-8bef-4356-b636-ee28cd891718
+80b0ca70-7a77-4d08-badc-08666197f0c4
+80e2669b-ad96-4513-ac44-f9f6feb917b6
+84cf5c7b-55e7-4043-a9ec-d7af7ec22008
+87c5ebfa-4552-4a59-8bf9-f1e55635c868
+95e3d9f8-6689-4f1d-b5e8-1c6145d71708
+96e09250-1947-4cab-8495-fca356480164
+168a1617-bb84-40a5-a428-3e6b462953b6
+304bf7bf-bd8a-4a83-9572-c8a39a210917
+498d0bbe-5e2b-4f10-895d-660264543d1d
+505f45ff-5d7d-4b50-a616-a80bae9af7d3
+538f1001-9c01-4e6a-87c1-638f7045c76b
+654ebdd7-9b28-4ccb-8b71-22f0e2cd2b99
+687a9cd9-9cc3-4b3d-a325-d064928135b5
+727b779d-c50c-49c8-94ca-2521c6a3af2e
+741ef40a-140a-4414-8be8-ae99e3fb997c
+757f112d-69a0-4986-8a7c-5b6947fce8ce
+773ad385-8ae9-435a-a0f2-34d83605fd95
+877f86a9-c039-417b-b430-420d3e836918
+907c807d-f3c2-4758-926e-8cde2bfee2d9
+971c86b0-d138-4fd1-9d1f-497cbbe20c49
+3077b42a-fd83-48f7-985a-9d947a86ae5a
+5192d2fa-088c-4856-9cea-675d6db33c8e
+5245bc33-31f4-43d2-b54b-5d4b2b26cdb9
+5924b248-de96-4f17-ac99-e8484c16b88a
+7806ba7d-05ee-4c90-901c-85f410dfeedd
+16544eb5-88ec-4a84-98be-846d706ff3fe
+77903f07-30a1-4421-ba95-cf7c0258da7c
+198919a1-c4ac-47bb-8572-a0c23adc8e2a
+453333bf-af65-46f5-85ed-d1eff0cf3403
+833025af-688b-4be3-9e29-28fba071df61
+3486079a-769c-47b4-988d-461967e09d81
+6927942f-35a3-421a-9fb7-63e532dbd268
+6960603c-f6d2-4498-bfd7-2f66d70eabce
+73178949-d3d5-4c17-a478-8f7c45e2d4a9
+96146443-ed2e-46d0-934f-ff0c8d2e9d21
+a7f9dadf-c48e-44e4-8643-75c029790564
+a8e9b1dc-c51d-4af7-a8c9-0d8f95bcf17a
+a3938683-0ae8-41c6-a45f-1ff28a43854a
+aaa1dcf2-ce00-491c-8af7-218468140774
+ab410ac5-a649-402c-94fc-56c7b68a38db
+b395c9c0-d015-450e-86ba-c9b0bba038db
+bbca2379-95aa-4299-8fa6-41a62925c1c0
+bc2a8cb5-38de-4f17-8955-83907ef5932a
+be274507-9685-4496-b4d7-387309c8a557
+c6a4bd4a-4f60-4a86-aaa5-33524be18e8c
+c48f6ec2-d086-4104-832e-ab4eb737dc51
+ca4806ce-7b7d-47e2-9f15-69c6594fd36a
+ca171342-edcb-4b0c-8def-b23e8d9245c7
+cbce1a09-577b-41ec-949a-4787a14c9a15
+cc3aac28-b1c4-4c84-8276-97b93971e1d6
+cd4bb5f5-f721-47b7-a9f6-d1410337a910
+d59e52fa-de8e-437f-bce5-c69459facb4c
+df91f15f-c1b4-453c-a443-531c30a4d8a4
+e09b69e7-d3ad-4996-8dbe-93b9e250eb55
+e4cde1d5-e301-47bd-b4b2-8484b7267f26
+e7b3cf61-983e-47f3-9456-f6958ca2bd86
+e2451adb-d9be-4f89-983a-3fcbf06f0038
+ea2074f8-2e89-40a2-8673-9df3f3fa989f
+eba3822b-58ac-4445-8877-e29e1877e98b
+ecd14bd5-11aa-47dd-8004-5f35a9e1767d
+ef450ae8-fb10-440f-8cde-19dd2421fe7c
+efbb9ff8-b5d5-41c3-bebf-2f22f28c2016
+f8b62a32-f09e-4a0d-9271-91dbb912e132
+f309f0b8-34f5-4fc0-90af-6e69321e9555
+f5454774-230c-49d9-9016-750045dac503
+fee5330a-892c-4ab5-9cec-f24af44ebcc3
+## SwiftPM lock files in TMPDIR
+_private_tmp_claude-501_-Users-antony-Development-AbstractingComputers-TestAnyware-gh-issue-14_5f0908b7-6ab2-4dc4-9867-41755c808772_scratchpad_mutant-agent_.build.lock
+_private_tmp_claude-501_-Users-antony-Development-AbstractingComputers-TestAnyware-gh-issue-14_5f0908b7-6ab2-4dc4-9867-41755c808772_scratchpad_mutant-agent_.build_Package.resolved.lock
+_private_tmp_claude-501_-Users-antony-Development-AbstractingComputers-TestAnyware-gh-issue-14_5f0908b7-6ab2-4dc4-9867-41755c808772_scratchpad_mutant-agent_.build_workspace-state.json.lock
+_private_tmp_claude-501_-Users-antony-Development-AbstractingComputers-TestAnyware-gh-issue-14_84cf5c7b-55e7-4043-a9ec-d7af7ec22008_scratchpad_k238-work_.build.lock
+_private_tmp_claude-501_-Users-antony-Development-AbstractingComputers-TestAnyware-gh-issue-14_84cf5c7b-55e7-4043-a9ec-d7af7ec22008_scratchpad_k238-work_.build_Package.resolved.lock
+_private_tmp_claude-501_-Users-antony-Development-AbstractingComputers-TestAnyware-gh-issue-14_84cf5c7b-55e7-4043-a9ec-d7af7ec22008_scratchpad_k238-work_.build_workspace-state.json.lock
+_private_tmp_claude-501_-Users-antony-Development-AbstractingComputers-TestAnyware-gh-issue-14_16544eb5-88ec-4a84-98be-846d706ff3fe_scratchpad_base_agents_macos_.build.lock
+_private_tmp_claude-501_-Users-antony-Development-AbstractingComputers-TestAnyware-gh-issue-14_16544eb5-88ec-4a84-98be-846d706ff3fe_scratchpad_base_agents_macos_.build_Package.resolved.lock
+_private_tmp_claude-501_-Users-antony-Development-AbstractingComputers-TestAnyware-gh-issue-14_16544eb5-88ec-4a84-98be-846d706ff3fe_scratchpad_base_agents_macos_.build_workspace-state.json.lock
+_private_tmp_claude-501_-Users-antony-Development-AbstractingComputers-TestAnyware-gh-issue-14_96146443-ed2e-46d0-934f-ff0c8d2e9d21_scratchpad_agent-base_build.lock
+_private_tmp_claude-501_-Users-antony-Development-AbstractingComputers-TestAnyware-gh-issue-14_96146443-ed2e-46d0-934f-ff0c8d2e9d21_scratchpad_agent-base_build_Package.resolved.lock
+_private_tmp_claude-501_-Users-antony-Development-AbstractingComputers-TestAnyware-gh-issue-14_96146443-ed2e-46d0-934f-ff0c8d2e9d21_scratchpad_agent-base_build_workspace-state.json.lock
+_private_tmp_claude-501_-Users-antony-Development-AbstractingComputers-TestAnyware-gh-issue-14_96146443-ed2e-46d0-934f-ff0c8d2e9d21_scratchpad_agent-trace_build.lock
+_private_tmp_claude-501_-Users-antony-Development-AbstractingComputers-TestAnyware-gh-issue-14_96146443-ed2e-46d0-934f-ff0c8d2e9d21_scratchpad_agent-trace_build_Package.resolved.lock
+_private_tmp_claude-501_-Users-antony-Development-AbstractingComputers-TestAnyware-gh-issue-14_96146443-ed2e-46d0-934f-ff0c8d2e9d21_scratchpad_agent-trace_build_workspace-state.json.lock
+_private_tmp_claude-501_-Users-antony-Development-AbstractingComputers-TestAnyware-gh-issue-14_96146443-ed2e-46d0-934f-ff0c8d2e9d21_scratchpad_guest-agent-build.lock
+_private_tmp_claude-501_-Users-antony-Development-AbstractingComputers-TestAnyware-gh-issue-14_96146443-ed2e-46d0-934f-ff0c8d2e9d21_scratchpad_guest-agent-build_Package.resolved.lock
+_private_tmp_claude-501_-Users-antony-Development-AbstractingComputers-TestAnyware-gh-issue-14_96146443-ed2e-46d0-934f-ff0c8d2e9d21_scratchpad_guest-agent-build_workspace-state.json.lock
+_private_tmp_claude-501_-Users-antony-Development-AbstractingComputers-TestAnyware-gh-issue-14_b395c9c0-d015-450e-86ba-c9b0bba038db_scratchpad_agent-build.lock
+_private_tmp_claude-501_-Users-antony-Development-AbstractingComputers-TestAnyware-gh-issue-14_b395c9c0-d015-450e-86ba-c9b0bba038db_scratchpad_agent-build_Package.resolved.lock
+_private_tmp_claude-501_-Users-antony-Development-AbstractingComputers-TestAnyware-gh-issue-14_b395c9c0-d015-450e-86ba-c9b0bba038db_scratchpad_agent-build_workspace-state.json.lock
+_private_tmp_claude-501_-Users-antony-Development-AbstractingComputers-TestAnyware-gh-issue-14_c6a4bd4a-4f60-4a86-aaa5-33524be18e8c_scratchpad_k13dev_work_agent_.build.lock
+_private_tmp_claude-501_-Users-antony-Development-AbstractingComputers-TestAnyware-gh-issue-14_c6a4bd4a-4f60-4a86-aaa5-33524be18e8c_scratchpad_k13dev_work_agent_.build_Package.resolved.lock
+_private_tmp_claude-501_-Users-antony-Development-AbstractingComputers-TestAnyware-gh-issue-14_c6a4bd4a-4f60-4a86-aaa5-33524be18e8c_scratchpad_k13dev_work_agent_.build_workspace-state.json.lock
+_private_tmp_claude-501_-Users-antony-Development-AbstractingComputers-TestAnyware-gh-issue-14_e4cde1d5-e301-47bd-b4b2-8484b7267f26_scratchpad_agentcopy_.build.lock
+_private_tmp_claude-501_-Users-antony-Development-AbstractingComputers-TestAnyware-gh-issue-14_e4cde1d5-e301-47bd-b4b2-8484b7267f26_scratchpad_agentcopy_.build_Package.resolved.lock
+_private_tmp_claude-501_-Users-antony-Development-AbstractingComputers-TestAnyware-gh-issue-14_e4cde1d5-e301-47bd-b4b2-8484b7267f26_scratchpad_agentcopy_.build_workspace-state.json.lock
+_private_tmp_claude-501_-Users-antony-Development-AbstractingComputers-TestAnyware-gh-issue-14_e4cde1d5-e301-47bd-b4b2-8484b7267f26_scratchpad_k12smoke_work_agent_.build.lock
+_private_tmp_claude-501_-Users-antony-Development-AbstractingComputers-TestAnyware-gh-issue-14_e4cde1d5-e301-47bd-b4b2-8484b7267f26_scratchpad_k12smoke_work_agent_.build_Package.resolved.lock
+_private_tmp_claude-501_-Users-antony-Development-AbstractingComputers-TestAnyware-gh-issue-14_e4cde1d5-e301-47bd-b4b2-8484b7267f26_scratchpad_k12smoke_work_agent_.build_workspace-state.json.lock
+_Users_antony_Development_AbstractingComputers_TestAnyware.k224-build_agents_macos_.build.lock
+_Users_antony_Development_AbstractingComputers_TestAnyware.k224-build_agents_macos_.build_Package.resolved.lock
+_Users_antony_Development_AbstractingComputers_TestAnyware.k224-build_agents_macos_.build_workspace-state.json.lock

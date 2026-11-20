@@ -1,0 +1,44 @@
+   Compiling testanyware-cli v0.0.1 (/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/cli-rs/crates/testanyware-cli)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.97s
+     Running tests/linux-host-harness.rs (target/debug/build/testanyware-cli/709d951595d6d092/out/linux_host_harness-709d951595d6d092)
+
+running 1 test
+[libs] the binary and the bundled libraries need only bundled libraries and the C runtime
+
+thread 'linux_host_harness' (103447167) panicked at crates/testanyware-cli/tests/linux-host-harness.rs:941:5:
+`vm start --platform linux` exited Some(7)
+stdout: {
+  "code": "VM_BOOT_TIMEOUT",
+  "details": {
+    "attempts": 10,
+    "cause": "local_network_denied",
+    "elapsed_secs": 19.059056625,
+    "endpoint": "http://192.168.64.2:8648/health",
+    "kept": false,
+    "last_error": {
+      "detail": "failed to connect to 192.168.64.2:8648: No route to host (os error 65)",
+      "kind": "host_unreachable",
+      "os_errno": 65
+    },
+    "stage": "agent",
+    "vm_id": "testanyware-6acbebdf"
+  },
+  "message": "VM 'testanyware-6acbebdf' did not become reachable within the boot window (stage agent, polling http://192.168.64.2:8648/health, 10 attempts over 19s; last error: host unreachable (os error 65): failed to connect to 192.168.64.2:8648: No route to host (os error 65); a platform tool connects to the agent's port, so macOS Local Network privacy denies this process the route)",
+  "ok": false,
+  "remediation": "The guest answers a platform tool. Allow TestAnyware in System Settings, Privacy & Security, Local Network. A person does this once, and again when an upgrade of the app asks. Re-run with --keep-on-failure to leave the VM running for inspection.",
+  "schema_version": "1.0"
+}
+
+stderr: testanyware: notice: the Host CLI is build 0.0.1 and the running TestAnyware app is build 2.9.0. Run `brew upgrade testanyware`.
+
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test linux_host_harness ... FAILED
+
+failures:
+
+failures:
+    linux_host_harness
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 41 filtered out; finished in 29.88s
+
+error: test failed, to rerun pass `-p testanyware-cli --test linux-host-harness`

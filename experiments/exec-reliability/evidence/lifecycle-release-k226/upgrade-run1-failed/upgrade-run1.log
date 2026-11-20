@@ -1,0 +1,32 @@
+task: [release:upgrade-check] scripts/upgrade-identity-live.sh run v2.8.99 v2.9.0
+upgrade-identity: info old: v2.8.99 at 55af0aa84eea9eebbedebd1c2362edecf5368209
+upgrade-identity: info new: v2.9.0 at 55af0aa84eea9eebbedebd1c2362edecf5368209
+Warning: The following taps are not trusted:
+  hewigovens/tap
+
+Homebrew is currently ignoring formulae, casks and commands
+from these taps because tap trust is required.
+Untap them with:
+  brew untap hewigovens/tap
+Trust specific formulae, casks and commands with:
+  brew trust --formula <user>/<tap>/<formula>
+  brew trust --cask <user>/<tap>/<cask>
+  brew trust --command <user>/<tap>/<command>
+Whole-tap trust is broader and includes all current and future formulae,
+casks and commands from the listed taps. Trust whole taps with:
+  brew trust hewigovens/tap
+For more information, see:
+  https://docs.brew.sh/Tap-Trust
+
+==> Fetching downloads for: local/upgrade-check/testanyware-app
+✔︎ Cask testanyware-app (2.8.99)
+All dependencies satisfied.
+==> Installing Cask testanyware-app
+==> Moving App 'TestAnyware.app' to '/Applications/TestAnyware.app'
+🍺  testanyware-app was successfully installed!
+upgrade-identity: ok   installed 2.8.99 from the tap. {"version":"2.8.99","identifier":"dev.antony.TestAnyware","team":"TA43A4RUP3","uuid":"DD8B44F0-2D21-374A-9144-BFA39E90E73C","quarantine":"0181;6b00058f;;7171A4A4-34D1-4BF9-AA59-49CB093EEEB3"}
+upgrade-identity: PERSON STEP (once): answer the dialog "TestAnyware is an app downloaded from the Internet" with Open. Waiting up to 180 s.
+upgrade-identity: ok   the app 2.8.99 answers, build 2.8.99, pid 15561
+upgrade-identity: ok   vm start through 2.8.99: upgrade-check reached a healthy agent in 20 s
+upgrade-identity: FAIL: agent snapshot through 2.8.99 failed.
+task: Failed to run task "release:upgrade-check": exit status 1
