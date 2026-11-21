@@ -1092,13 +1092,158 @@ fn vm_create_golden_macos_accepts_macos_27_or_later_only() {
     }
 
     // The control: macOS 27 passes the version check and reaches the plan.
-    let out = run(&[
-        "vm", "create-golden", "--platform", "macos", "--version", "27", "--dry-run", "--json",
-    ]);
-    assert_eq!(out.status.code(), Some(0), "{}", String::from_utf8_lossy(&out.stdout));
+    #[cfg(target_os = "macos")]
+    {
+        let host = GoldenHost::new(&[]);
+        let out = host.run(&[
+            "vm", "create-golden", "--platform", "macos", "--version", "27", "--dry-run", "--json",
+        ]);
+        assert_eq!(out.status.code(), Some(0), "{}", String::from_utf8_lossy(&out.stdout));
+        let body: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+        assert_eq!(body["dry_run"], true);
+        assert_eq!(body["base"]["name"], "testanyware-base-macos-27.2.1-26B131", "{body}");
+    }
+}
+
+/// A host for the plan of macOS golden creation: a fake `curl` that prints the trimmed IPSW
+/// catalogue of 2026-11-21, and a fake `tart` whose `list` names `vms`. Both come first on
+/// `PATH`, and `HOME` is empty, so no `config.rhai` of the developer names another `tart`.
+#[cfg(target_os = "macos")]
+struct GoldenHost {
+    dir: tempfile::TempDir,
+}
+
+#[cfg(target_os = "macos")]
+impl GoldenHost {
+    fn new(vms: &[&str]) -> Self {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let tools = dir.path().join("tools");
+        std::fs::create_dir_all(&tools).unwrap();
+        let list: Vec<serde_json::Value> = vms
+            .iter()
+            .map(|name| serde_json::json!({ "Name": name, "State": "stopped" }))
+            .collect();
+        let scripts = [
+            ("curl", format!("cat '{}'", common::ipsw_catalogue().display())),
+            (
+                "tart",
+                format!(
+                    "[ \"$1\" = list ] || exit 2\necho '{}'",
+                    serde_json::Value::Array(list)
+                ),
+            ),
+        ];
+        for (name, body) in scripts {
+            let path = tools.join(name);
+            std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        Self { dir }
+    }
+
+    fn run(&self, args: &[&str]) -> Output {
+        let root = self.dir.path();
+        let path = format!(
+            "{}:{}",
+            root.join("tools").display(),
+            std::env::var("PATH").unwrap_or_default()
+        );
+        Command::new(BIN)
+            .args(args)
+            .env_clear()
+            .env("PATH", path)
+            .env("HOME", root)
+            .env("XDG_STATE_HOME", root.join("state"))
+            .env("XDG_DATA_HOME", root.join("data"))
+            .output()
+            .unwrap_or_else(|e| panic!("failed to invoke `{BIN} {}`: {e}", args.join(" ")))
+    }
+}
+
+/// ADR-0027: the dry run of macOS golden creation names the release of the catalogue, the base
+/// of that release, whether it exists, and each older base that the run deletes.
+#[cfg(target_os = "macos")]
+#[test]
+fn vm_create_golden_dry_run_plans_the_latest_virtual_mac_release() {
+    const JSON: &[&str] = &["vm", "create-golden", "--platform", "macos", "--dry-run", "--json"];
+    const TEXT: &[&str] = &["vm", "create-golden", "--platform", "macos", "--dry-run"];
+
+    // The base of 2.9.0 and the golden exist. The base of 27.2.1 does not.
+    let host = GoldenHost::new(&["testanyware-base-macos-27", "testanyware-golden-macos-27"]);
+    let out = host.run(JSON);
+    assert_eq!(out.status.code(), Some(0), "{}", String::from_utf8_lossy(&out.stderr));
     let body: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
-    assert_eq!(body["dry_run"], true);
-    assert!(body["base"].as_str().unwrap().starts_with("testanyware-base-macos-27"), "{body}");
+    assert_eq!(body["release"]["version"], "27.2.1", "{body}");
+    assert_eq!(body["release"]["build"], "26B131", "{body}");
+    assert!(body["release"]["url"].as_str().unwrap().ends_with("UniversalMac_27.2.1_26B131_Restore.ipsw"));
+    assert_eq!(body["base"]["name"], "testanyware-base-macos-27.2.1-26B131", "{body}");
+    assert_eq!(body["base"]["exists"], false, "{body}");
+    assert_eq!(body["base"]["older"], serde_json::json!(["testanyware-base-macos-27"]), "{body}");
+    assert_eq!(body["golden_exists"], true, "{body}");
+
+    let out = host.run(TEXT);
+    assert_eq!(out.status.code(), Some(0));
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(text.contains("release: macOS 27.2.1 (26B131)"), "{text}");
+    assert!(text.contains("testanyware-base-macos-27.2.1-26B131 does not exist"), "{text}");
+    assert!(text.contains("older base: testanyware-base-macos-27."), "{text}");
+    assert!(text.contains("golden: testanyware-golden-macos-27 exists"), "{text}");
+
+    // The base of 27.2.1 exists, so there is no older base.
+    let host = GoldenHost::new(&["testanyware-base-macos-27.2.1-26B131"]);
+    let body: serde_json::Value = serde_json::from_slice(&host.run(JSON).stdout).unwrap();
+    assert_eq!(body["base"]["exists"], true, "{body}");
+    assert_eq!(body["base"]["older"], serde_json::json!([]), "{body}");
+    assert_eq!(body["golden_exists"], false, "{body}");
+    let out = host.run(TEXT);
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(text.contains("base: testanyware-base-macos-27.2.1-26B131 exists"), "{text}");
+    assert!(!text.contains("older base"), "{text}");
+}
+
+/// ADR-0027: a dry run fails with the error of the real run when a read fails, and never falls
+/// back to another build.
+#[cfg(target_os = "macos")]
+#[test]
+fn vm_create_golden_dry_run_fails_when_a_read_fails() {
+    use std::os::unix::fs::PermissionsExt;
+    let json = ["vm", "create-golden", "--platform", "macos", "--dry-run", "--json"];
+    let fail = |host: &GoldenHost, tool: &str, body: &str| {
+        let path = host.dir.path().join("tools").join(tool);
+        std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    };
+
+    let host = GoldenHost::new(&[]);
+    fail(&host, "curl", "echo 'curl: (6) Could not resolve host' >&2\nexit 6");
+    let out = host.run(&json);
+    assert_eq!(out.status.code(), Some(1));
+    let body: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(body["code"], "GOLDEN_CREATE_FAILED", "{body}");
+    assert!(body["details"]["detail"].as_str().unwrap().contains("mesu.apple.com"), "{body}");
+
+    let host = GoldenHost::new(&[]);
+    fail(&host, "tart", "echo 'tart: boom' >&2\nexit 1");
+    let out = host.run(&json);
+    assert_ne!(out.status.code(), Some(0));
+    let body: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(body["code"], "TART_FAILED", "{body}");
+
+    // A catalogue with no virtual Mac entry for the major names the catalogue and the major.
+    let host = GoldenHost::new(&[]);
+    let catalogue = std::fs::read_to_string(common::ipsw_catalogue())
+        .unwrap()
+        .replace("<key>VirtualMac2,1</key>", "<key>Mac99,1</key>");
+    let copy = host.dir.path().join("catalogue.xml");
+    std::fs::write(&copy, catalogue).unwrap();
+    fail(&host, "curl", &format!("cat '{}'", copy.display()));
+    let out = host.run(&json);
+    assert_eq!(out.status.code(), Some(1));
+    let body: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(body["code"], "GOLDEN_CREATE_FAILED", "{body}");
+    let detail = body["details"]["detail"].as_str().unwrap();
+    assert!(detail.contains("mesu.apple.com") && detail.contains("macOS 27"), "{body}");
 }
 
 /// ADR-0016 D3: the `--display WxH@2x` HiDPI opt-in is validated at the CLI

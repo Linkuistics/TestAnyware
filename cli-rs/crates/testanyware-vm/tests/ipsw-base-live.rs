@@ -10,7 +10,7 @@
 //! Assistant is the part that needs tuning. Make a fresh, never-booted VM once:
 //!
 //! ```text
-//! tart create my-fresh-27 --from-ipsw ~/.local/share/testanyware/cache/macos-27.0.1-26A434.ipsw
+//! tart create my-fresh-27 --from-ipsw ~/.local/share/testanyware/cache/macos-27.2.1-26B131.ipsw
 //! ```
 //!
 //! then run the driver against a clone of it, as often as needed:
@@ -27,9 +27,12 @@
 //!   cargo test -p testanyware-vm --test ipsw-base-live -- --ignored --nocapture ensure_base_vm_live
 //! ```
 //!
-//! Resolves the IPSW from Apple's catalogue, downloads it (resumable, cached),
-//! installs, configures, and leaves `testanyware-base-macos-27` stopped. A
-//! no-op if that VM already exists.
+//! Makes the plan from Apple's catalogue and `tart list`, downloads the IPSW of
+//! the planned release (resumable, cached), installs, configures, and leaves
+//! the base `testanyware-base-macos-<version>-<build>` stopped. It builds
+//! nothing if that VM already exists. Then it deletes the older bases of macOS
+//! 27 and the cached IPSWs of other releases, as golden creation does
+//! (ADR-0027).
 //!
 //! Each test ends by *booting* the result and logging in over SSH as
 //! `admin`/`admin` — the base's whole contract — then shutting it down.
@@ -38,7 +41,7 @@
 
 use std::time::Duration;
 
-use testanyware_vm::ipsw_base::{base_vm_name, configure_fresh_vm, ensure_base_vm};
+use testanyware_vm::ipsw_base::{configure_fresh_vm, current_plan, ensure_base_vm};
 use testanyware_vm::paths::VmPaths;
 use testanyware_vm::ssh::SshSession;
 use testanyware_vm::{process, tart};
@@ -118,7 +121,11 @@ async fn ensure_base_vm_live() {
         return;
     }
     let paths = VmPaths::from_process_env();
-    let name = ensure_base_vm(27, &paths).await.expect("ensure_base_vm");
-    assert_eq!(name, base_vm_name(27));
+    let plan = current_plan(27, "testanyware-golden-macos-27").expect("current_plan");
+    let name = ensure_base_vm(&plan, &paths).await.expect("ensure_base_vm");
+    assert_eq!(name, plan.base);
+    for older in &plan.older {
+        assert!(!tart::vm_exists(older), "the refresh left the older base {older}");
+    }
     verify_base(&name, &paths).await;
 }

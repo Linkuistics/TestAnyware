@@ -18,10 +18,11 @@ All golden images share these properties:
 
 ## macOS (`testanyware-golden-macos-27`)
 
-- **macOS 27** (Apple Silicon). Golden creation builds a base VM,
-  `testanyware-base-macos-27`, once from Apple's IPSW. This is the default
-  macOS golden: `vm start --platform macos` clones it when you pass no
-  `--base`.
+- **The latest release of macOS 27** (Apple Silicon). Golden creation clones a
+  base VM, `testanyware-base-macos-<version>-<build>`, such as
+  `testanyware-base-macos-27.2.1-26B131`. It builds that base from Apple's IPSW
+  when the base does not exist. This is the default macOS golden: `vm start
+  --platform macos` clones it when you pass no `--base`.
 - **Only macOS 27 or a later major.** `vm create-golden --platform macos
   --version` takes a major number of 27 or later. A Cirrus Labs tag (`tahoe`,
   `sequoia`, `sonoma`) or a major below 27 fails with a usage error. The
@@ -80,6 +81,42 @@ All golden images share these properties:
   `SWTPM_MISSING`, not a silent omission.
 - **VirtIO networking** — setup installs the virtio-net-pci driver.
 
+## Keeping goldens current
+
+A golden holds the latest release of its major at the time of its build
+(ADR-0027). Its name names the major only, so a refresh keeps the name. To
+refresh a golden, run `vm create-golden` again. The earlier golden goes only
+when the new golden is ready, so a failed build keeps it. Nothing checks at run
+time whether a golden is older than the latest release.
+
+- **macOS.** The release is the newest one that Apple's IPSW catalogue lists for
+  the device `VirtualMac2,1` in the major. The name of the base VM carries that
+  release, so `tart list` shows it. When the base of the release does not exist,
+  golden creation downloads the IPSW (about 25 GB) and builds the base. This
+  drives Setup Assistant, which takes about 10 minutes more. When the base is
+  ready, golden creation deletes each other base of the major, such as
+  `testanyware-base-macos-27` of TestAnyware 2.9.0. It also deletes each cached
+  IPSW of another release. If the catalogue lists no `VirtualMac2,1` release of
+  the major, golden creation fails with `GOLDEN_CREATE_FAILED`, and it never
+  uses another build.
+- **Linux.** The build installs the current Ubuntu updates of the release in
+  the name.
+- **Windows.** The golden holds the release of the ISO that you supply.
+  TestAnyware cannot download that ISO, and it runs no Windows Update. So the
+  golden misses each cumulative update that Microsoft releases after its ISO.
+  To refresh it, pass a current ISO with `--iso`.
+
+To see what a macOS refresh does before you run it, use the dry run:
+
+```bash
+testanyware vm create-golden --platform macos --dry-run
+```
+
+It reads the catalogue and `tart list`. It names the release and its build, and
+it says whether the base of that release exists. It names each older base that
+the run deletes, and it says when the run replaces a golden. The dry run and the
+run both need the network. Without it, both fail with the same error.
+
 ## Creating the golden images
 
 ```bash
@@ -108,12 +145,13 @@ protocol needs a rebuild of every golden**. A clone of a stale golden runs the
 old agent, and it fails against a matching new host CLI. There is no version
 negotiation (see ADR-0001, the change of `/upload` and `/download` to streams).
 
-The create scripts need no change for this, because each one takes the agent
-from the *current* source. The macOS script copies the built
-`testanyware-agent` binary over SCP. Point it at a contributor build with
-`TESTANYWARE_AGENT_BIN_OVERRIDE=…`. The Linux script copies the Python source
-in `agents/linux`. So, to rebuild, build the new agents, and then run the create
-script of each platform again.
+The create commands need no change for this, because each one takes the agent
+from the *current* source. The macOS command copies the built
+`testanyware-agent` binary over SFTP. Point it at a contributor build with
+`TESTANYWARE_AGENT_BIN_OVERRIDE=…`. The Linux command copies the Python source
+in `agents/linux`. So, to rebuild, build the new agents, and then run
+`vm create-golden` for each platform again. A rebuild also refreshes the golden
+to the latest release of its major.
 
 The Windows golden needs a rebuild on a Windows
 host. The create flow needs the `net9.0-windows` and FlaUI agent, which cannot
@@ -125,4 +163,4 @@ run on Apple Silicon.
 - **Windows goldens:** `${XDG_DATA_HOME:-~/.local/share}/testanyware/golden/`.
 
 `testanyware vm list` shows all goldens (tart and QEMU) and their running
-clones. `testanyware vm delete <name>` removes one.
+clones. `testanyware vm delete <name>` deletes one.

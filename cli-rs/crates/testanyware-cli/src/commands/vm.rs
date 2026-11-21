@@ -569,15 +569,11 @@ async fn run_vm_create_golden_macos(
         Ok(major) => major,
         Err(err) => exit_vm_error(err, mode),
     };
-    if dry_run {
-        emit_golden_plan(major, &version, &name, mode);
-        return;
-    }
-
-    // tart is macOS-only, so a non-macOS host cannot serve the command.
+    // tart is macOS-only, so a non-macOS host cannot serve the command. The dry run reads
+    // `tart list`, so it fails the same way.
     #[cfg(not(target_os = "macos"))]
     {
-        let _ = (&version, &name);
+        let _ = (&version, &name, major, dry_run);
         exit_vm_error(
             VmError::BackendUnsupported {
                 platform: "macos (vm create-golden requires a macOS host)".into(),
@@ -590,6 +586,16 @@ async fn run_vm_create_golden_macos(
     {
         use testanyware_vm::finalize::create_golden_after;
         use testanyware_vm::golden::{GoldenOptions, GoldenPreflight};
+
+        // The dry run reads the catalogue and `tart list` as the fast checks do, and it fails
+        // with the error of the real run when either read fails (ADR-0027).
+        if dry_run {
+            match testanyware_vm::ipsw_base::current_plan(major, &name) {
+                Ok(plan) => emit_golden_plan(&plan, &version, &name, mode),
+                Err(err) => exit_vm_error(err, mode),
+            }
+            return;
+        }
 
         // The app compares the directories of its own requests. Golden creation checks them
         // first, so a mismatch fails before the checks and before the wait for a slot.
@@ -785,32 +791,57 @@ fn golden_boot_plan() -> [(u32, &'static str, &'static str); 5] {
     ]
 }
 
-/// Where the macOS golden's base VM comes from, in words, for the dry-run
-/// plan: a base built from Apple's IPSW on first use. Pure (no `tart`, no
-/// network), shared by the text and JSON renderers.
-fn golden_base_note(major: u32) -> String {
-    format!(
-        "{}, built from Apple's IPSW for macOS {major} on first use (about 25 GB download)",
-        testanyware_vm::base_source::base_vm_name(major)
-    )
+/// The lines of the dry-run plan that name the release, the base, the older bases and the golden
+/// (ADR-0027). Pure, so the text is unit-tested.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn golden_plan_lines(plan: &testanyware_vm::base_source::GoldenPlan, name: &str) -> Vec<String> {
+    let release = &plan.release;
+    let mut lines = vec![format!(
+        "release: macOS {} ({}), the newest {} release in Apple's IPSW catalogue",
+        release.version,
+        release.build,
+        testanyware_vm::base_source::VIRTUAL_MAC
+    )];
+    lines.push(if plan.base_exists {
+        format!("base: {} exists", plan.base)
+    } else {
+        format!(
+            "base: {} does not exist. The run builds it from Apple's IPSW (about 25 GB download)",
+            plan.base
+        )
+    });
+    for older in &plan.older {
+        lines.push(format!("older base: {older}. The run deletes it when the base is ready"));
+    }
+    if plan.golden_exists {
+        lines.push(format!("golden: {name} exists. The run replaces it when the new golden is ready"));
+    }
+    lines
 }
 
-fn emit_golden_plan(major: u32, version: &str, name: &str, mode: OutputMode) {
-    let plan = golden_boot_plan();
-    let base = golden_base_note(major);
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn emit_golden_plan(
+    plan: &testanyware_vm::base_source::GoldenPlan,
+    version: &str,
+    name: &str,
+    mode: OutputMode,
+) {
+    let boots = golden_boot_plan();
     match mode {
         OutputMode::Text => {
             println!(
                 "dry-run: would create golden {name} (platform macos, version {version})"
             );
-            println!("base: {base}");
+            for line in golden_plan_lines(plan, name) {
+                println!("{line}");
+            }
             println!("boot plan (3 normal + 2 recovery = 5 boots):");
-            for (step, boot_mode, actions) in plan {
+            for (step, boot_mode, actions) in boots {
                 println!("  {step}. [{boot_mode}] {actions}");
             }
         }
         OutputMode::Json => {
-            let steps: Vec<Value> = plan
+            let steps: Vec<Value> = boots
                 .iter()
                 .map(|(step, boot_mode, actions)| {
                     json!({ "step": step, "mode": boot_mode, "actions": actions })
@@ -821,7 +852,17 @@ fn emit_golden_plan(major: u32, version: &str, name: &str, mode: OutputMode) {
                 "platform": "macos",
                 "version": version,
                 "name": name,
-                "base": base,
+                "release": {
+                    "version": plan.release.version,
+                    "build": plan.release.build,
+                    "url": plan.release.url,
+                },
+                "base": {
+                    "name": plan.base,
+                    "exists": plan.base_exists,
+                    "older": plan.older,
+                },
+                "golden_exists": plan.golden_exists,
                 "boot_plan": steps,
             }));
         }
@@ -1087,10 +1128,38 @@ mod tests {
         }
     }
 
+    fn plan(base_exists: bool, older: &[&str], golden_exists: bool) -> testanyware_vm::base_source::GoldenPlan {
+        testanyware_vm::base_source::GoldenPlan {
+            release: testanyware_vm::base_source::IpswRelease {
+                version: "27.2.1".into(),
+                build: "26B131".into(),
+                url: "https://x/UniversalMac_27.2.1_26B131_Restore.ipsw".into(),
+            },
+            base: "testanyware-base-macos-27.2.1-26B131".into(),
+            base_exists,
+            older: older.iter().map(|s| s.to_string()).collect(),
+            golden_exists,
+        }
+    }
+
     #[test]
-    fn golden_base_note_names_the_ipsw_built_base() {
-        let ipsw = golden_base_note(27);
-        assert!(ipsw.starts_with("testanyware-base-macos-27, built from Apple's IPSW"), "{ipsw}");
+    fn the_plan_text_names_the_release_the_older_bases_and_a_replaced_golden() {
+        let lines = golden_plan_lines(
+            &plan(false, &["testanyware-base-macos-27"], true),
+            "testanyware-golden-macos-27",
+        );
+        assert_eq!(
+            lines,
+            [
+                "release: macOS 27.2.1 (26B131), the newest VirtualMac2,1 release in Apple's IPSW catalogue",
+                "base: testanyware-base-macos-27.2.1-26B131 does not exist. The run builds it from Apple's IPSW (about 25 GB download)",
+                "older base: testanyware-base-macos-27. The run deletes it when the base is ready",
+                "golden: testanyware-golden-macos-27 exists. The run replaces it when the new golden is ready",
+            ]
+        );
+        let lines = golden_plan_lines(&plan(true, &[], false), "g");
+        assert_eq!(lines.len(), 2, "{lines:?}");
+        assert_eq!(lines[1], "base: testanyware-base-macos-27.2.1-26B131 exists");
     }
 
     #[test]

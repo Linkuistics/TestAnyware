@@ -360,6 +360,19 @@ pub fn running_names_strict_in(tools: &ToolSearch, bound: Duration) -> Result<Ve
     parse_running_names_strict(&r.stdout)
 }
 
+/// Every VM name that `tart list` reports, or why tart did not answer. A failed call and output
+/// that is no list are errors, so an empty list is always an answer of tart. Golden creation reads
+/// it to plan its base (ADR-0027).
+pub fn all_names_strict_in(tools: &ToolSearch) -> Result<Vec<String>, String> {
+    let r = run_tart_in(tools, &["list", "--format", "json"]);
+    if r.exit_code != 0 {
+        return Err(format!("tart list failed: {}", r.stderr.trim()));
+    }
+    let rows: Vec<TartVm> = serde_json::from_str(&r.stdout)
+        .map_err(|e| format!("tart list printed output that is not a list of VMs: {e}"))?;
+    Ok(rows.into_iter().map(|vm| vm.name).collect())
+}
+
 /// The OS in a `tart get <vm> --format json` text (`darwin` or `linux`), or `None` when the text
 /// is not that JSON. tart prints the key `OS`; `tart list` does not print it.
 pub fn parse_os(tart_json: &str) -> Option<String> {

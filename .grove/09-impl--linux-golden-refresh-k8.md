@@ -23,6 +23,15 @@ with the agent of this checkout.
   predates the disk growth to 50 GB.
 - `macos-golden-refresh-k7` adds the refresh recipe to the Taskfile, and it
   moves the replacement of the macOS golden to the final clone.
+- `macos-golden-refresh-k7` named its recipe `vm:refresh-golden-macos`. It
+  takes no platform, so the Linux form goes beside it.
+- `docs/user/golden-images.md` has a section "Keeping goldens current". Its
+  Linux item says only that the build installs the current Ubuntu updates.
+  Replace that item with the pull and the full update. The mirror under
+  `website/docs/` comes from the same text.
+- The shared `fake-tart` lists `testanyware-base-macos-27.2.1-26B131`, and
+  `TestApp::add_golden_tools` in the CLI test harness puts a fake `curl` on
+  `PATH`.
 
 ## Decisions for this leaf
 

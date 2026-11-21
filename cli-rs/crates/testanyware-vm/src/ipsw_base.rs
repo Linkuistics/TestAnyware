@@ -7,16 +7,21 @@
 //! account made and Remote Login on. This module makes that base itself, for
 //! every macOS guest:
 //!
-//! 1. resolve the IPSW for a macOS major from Apple's catalogue, download it
-//!    into the cache (resumable);
-//! 2. `tart create --from-ipsw` — Virtualization.framework installs macOS;
+//! 1. read Apple's catalogue and `tart list`, and make the plan of
+//!    [`crate::base_source::plan_golden`]: the newest `VirtualMac2,1` release
+//!    of the major, and its base name `testanyware-base-macos-<version>-<build>`;
+//! 2. when that base does not exist, download the IPSW into the cache
+//!    (resumable) and run `tart create --from-ipsw`. Virtualization.framework
+//!    installs macOS;
 //! 3. first boot, drive Setup Assistant over RFB + OCR (ADR-0008) to create
 //!    the `admin` account;
 //! 4. turn Remote Login on and prove it by an SSH login as `admin`/`admin`;
-//! 5. leave the VM stopped under [`base_vm_name`].
+//! 5. leave the VM stopped under its base name;
+//! 6. when the base is ready, delete each older base of the major and each
+//!    cached IPSW of another release ([`refresh`], ADR-0027).
 //!
-//! The base is built once and cloned from for every golden, so the install is
-//! paid for once per macOS release.
+//! Each golden of one release clones the same base, so the install runs once
+//! for each macOS release.
 //!
 //! ## The `--version` selector
 //!
@@ -28,87 +33,12 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use crate::error::VmError;
-pub use crate::base_source::{base_vm_name, macos_major};
+pub use crate::base_source::{
+    base_vm_name, macos_major, plan_golden, GoldenPlan, IpswRelease, IPSW_CATALOGUE_URL,
+};
 use crate::paths::VmPaths;
 
-/// One macOS restore image listed in Apple's catalogue.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct IpswRelease {
-    /// The macOS version, e.g. `27.0.1`.
-    pub version: String,
-    /// The build, e.g. `26A434`.
-    pub build: String,
-    pub url: String,
-}
-
-impl IpswRelease {
-    /// The macOS major version (`27` for `27.0.1`).
-    pub fn major(&self) -> Option<u32> {
-        self.version.split('.').next()?.parse().ok()
-    }
-
-    /// The file name this release is cached under.
-    pub fn cache_file_name(&self) -> String {
-        format!("macos-{}-{}.ipsw", self.version, self.build)
-    }
-}
-
-/// Apple's macOS IPSW catalogue — the source `tart create --from-ipsw latest`
-/// reads.
-pub const IPSW_CATALOGUE_URL: &str =
-    "https://mesu.apple.com/assets/macos/com_apple_macOSIPSW/com_apple_macOSIPSW.xml";
-
-/// Every Mac restore image in the catalogue text. The catalogue is an XML plist
-/// whose restore images are `<string>` URLs ending
-/// `UniversalMac_<version>_<build>_Restore.ipsw`; those file names are read
-/// directly rather than walking the plist, which has changed shape before
-/// while the file name convention has not.
-pub fn parse_ipsw_catalogue(text: &str) -> Vec<IpswRelease> {
-    let mut releases: Vec<IpswRelease> = Vec::new();
-    for (end, _) in text.match_indices("_Restore.ipsw") {
-        let end = end + "_Restore.ipsw".len();
-        let start = text[..end]
-            .rfind(|c: char| c == '<' || c == '>' || c.is_whitespace() || c == '"')
-            .map_or(0, |i| i + 1);
-        let url = &text[start..end];
-        let Some(file) = url.rsplit('/').next() else { continue };
-        let Some(stem) = file.strip_prefix("UniversalMac_").and_then(|f| f.strip_suffix("_Restore.ipsw"))
-        else {
-            continue;
-        };
-        let Some((version, build)) = stem.split_once('_') else { continue };
-        let version_ok = !version.is_empty()
-            && version.split('.').all(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit()));
-        if !url.starts_with("https://") || !version_ok || build.is_empty() {
-            continue;
-        }
-        let release = IpswRelease {
-            version: version.to_string(),
-            build: build.to_string(),
-            url: url.to_string(),
-        };
-        if !releases.contains(&release) {
-            releases.push(release);
-        }
-    }
-    releases
-}
-
-/// The version's numeric parts, for ordering `27.0.10` after `27.0.2`.
-fn version_key(version: &str) -> Vec<u32> {
-    version.split('.').filter_map(|p| p.parse().ok()).collect()
-}
-
-/// The newest release of macOS `major` in `releases`, or `None` when the
-/// catalogue lists none (Apple only lists the releases it still signs).
-pub fn select_ipsw(releases: &[IpswRelease], major: u32) -> Option<&IpswRelease> {
-    releases
-        .iter()
-        .filter(|r| r.major() == Some(major))
-        .max_by_key(|r| version_key(&r.version))
-}
-
-/// Where a release's IPSW is cached (`<cache_dir>/macos-27.0.1-26A434.ipsw`).
+/// Where a release's IPSW is cached (`<cache_dir>/macos-27.2.1-26B131.ipsw`).
 pub fn cached_ipsw_path(cache_dir: &Path, release: &IpswRelease) -> PathBuf {
     cache_dir.join(release.cache_file_name())
 }
@@ -190,26 +120,36 @@ pub fn base_config_commands(user: &str, pass: &str) -> Vec<(&'static str, String
 
 // ---- live orchestration (verified on the Mac, not unit-tested) -----------
 
-/// Look up the newest IPSW for `major` in Apple's catalogue.
-pub fn resolve_release(major: u32) -> Result<IpswRelease, VmError> {
-    let out = std::process::Command::new(crate::qemu_profile::which("curl").unwrap_or_else(|| "curl".into()))
+/// The text of Apple's IPSW catalogue, read with `curl`. A failed read fails with
+/// `GOLDEN_CREATE_FAILED`, and the error names the catalogue.
+pub fn fetch_catalogue() -> Result<String, VmError> {
+    let curl = crate::qemu_profile::which("curl").unwrap_or_else(|| "curl".into());
+    let out = std::process::Command::new(curl)
         .args(["-fsSL", IPSW_CATALOGUE_URL])
         .output()
-        .map_err(|e| VmError::GoldenCreateFailed { detail: format!("fetch IPSW catalogue: {e}") })?;
+        .map_err(|e| VmError::GoldenCreateFailed {
+            detail: format!("read Apple's IPSW catalogue {IPSW_CATALOGUE_URL}: {e}"),
+        })?;
     if !out.status.success() {
         return Err(VmError::GoldenCreateFailed {
-            detail: format!("fetch IPSW catalogue {IPSW_CATALOGUE_URL}: curl exited {}", out.status),
+            detail: format!(
+                "read Apple's IPSW catalogue {IPSW_CATALOGUE_URL}: curl exited {}: {}",
+                out.status,
+                String::from_utf8_lossy(&out.stderr).trim()
+            ),
         });
     }
-    let text = String::from_utf8_lossy(&out.stdout);
-    let releases = parse_ipsw_catalogue(&text);
-    select_ipsw(&releases, major).cloned().ok_or_else(|| VmError::GoldenCreateFailed {
-        detail: format!(
-            "Apple's IPSW catalogue lists no macOS {major} restore image (it lists: {}). \
-             Use a macOS major that the catalogue lists.",
-            releases.iter().map(|r| r.version.as_str()).collect::<Vec<_>>().join(", ")
-        ),
-    })
+    Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+}
+
+/// The plan of a macOS golden creation on this host: the catalogue, `tart list` and
+/// [`plan_golden`]. The fast checks and the dry run both call it, so a failed read fails
+/// both with one error.
+pub fn current_plan(major: u32, golden: &str) -> Result<GoldenPlan, VmError> {
+    let catalogue = fetch_catalogue()?;
+    let names = crate::tart::all_names_strict_in(&crate::tools::ToolSearch::from_process_path())
+        .map_err(|detail| VmError::TartFailed { detail })?;
+    plan_golden(&catalogue, &names, major, golden)
 }
 
 /// Ensure `release`'s IPSW is in the cache, downloading it if not. The download
@@ -257,38 +197,62 @@ const BASE_DISK_GB: u32 = 50;
 const SHUTDOWN_WAIT_ATTEMPTS: u32 = 60;
 const SHUTDOWN_WAIT_INTERVAL: Duration = Duration::from_secs(2);
 
-/// The base VM for `major`: the existing one if it is already built, otherwise
-/// build it (download the IPSW, install macOS, walk Setup Assistant, enable
-/// SSH, configure — see the module docs). Returns the tart VM name to clone.
+/// The base VM of `plan`: the existing one, or a new one built from the IPSW of the release
+/// (download the IPSW, install macOS, walk Setup Assistant, enable SSH, configure, as the module
+/// docs describe). When the base is ready, [`refresh`] deletes the older bases and IPSWs.
+/// Returns the tart VM name to clone.
 ///
 /// The VM is built under a `-building` name and renamed into place only when
 /// complete, so a failed or interrupted build never leaves a half-made base
 /// that a later run would mistake for a good one.
-pub async fn ensure_base_vm(major: u32, paths: &VmPaths) -> Result<String, VmError> {
-    let name = base_vm_name(major);
+pub async fn ensure_base_vm(plan: &GoldenPlan, paths: &VmPaths) -> Result<String, VmError> {
+    let name = plan.base.clone();
+    let release = &plan.release;
     if crate::tart::vm_exists(&name) {
-        eprintln!("Using existing base VM '{name}'.");
-        return Ok(name);
-    }
-    let release = resolve_release(major)?;
-    eprintln!("No base VM '{name}'; building one from macOS {} ({}).", release.version, release.build);
-    let ipsw = ensure_ipsw(&release, &paths.cache_dir())?;
+        eprintln!("Using existing base VM '{name}' (macOS {} {}).", release.version, release.build);
+    } else {
+        eprintln!("No base VM '{name}'. Building one from macOS {} ({}).", release.version, release.build);
+        let ipsw = ensure_ipsw(release, &paths.cache_dir())?;
 
-    let building = format!("{name}-building");
-    crate::tart::remove_existing(&building);
-    eprintln!("Installing macOS into '{building}' (a few minutes)...");
-    crate::tart::create_from_ipsw(&building, &ipsw, BASE_DISK_GB)?;
+        let building = format!("{name}-building");
+        crate::tart::remove_existing(&building);
+        eprintln!("Installing macOS into '{building}' (a few minutes)...");
+        crate::tart::create_from_ipsw(&building, &ipsw, BASE_DISK_GB)?;
 
-    match configure_fresh_vm(&building, paths).await {
-        Ok(()) => {
-            crate::tart::rename(&building, &name)?;
-            eprintln!("Base VM '{name}' is ready.");
-            Ok(name)
-        }
-        Err(e) => {
-            eprintln!("Base VM build failed — removing '{building}'.");
+        if let Err(e) = configure_fresh_vm(&building, paths).await {
+            eprintln!("Base VM build failed. Removing '{building}'.");
             crate::tart::remove_existing(&building);
-            Err(e)
+            return Err(e);
+        }
+        crate::tart::rename(&building, &name)?;
+        eprintln!("Base VM '{name}' is ready.");
+    }
+    refresh(plan, &paths.cache_dir());
+    Ok(name)
+}
+
+/// Delete each older base of the plan, and then each cached IPSW of another release (ADR-0027).
+/// A refresh runs only when the base of the plan is ready. A deletion that fails is reported and
+/// does not fail golden creation, because the next run tries it again.
+pub fn refresh(plan: &GoldenPlan, cache_dir: &Path) {
+    for older in &plan.older {
+        eprintln!("Deleting older base VM '{older}'...");
+        crate::tart::remove_existing(older);
+        if crate::tart::vm_exists(older) {
+            eprintln!("  warning: tart did not delete '{older}'. The next golden creation tries again.");
+        }
+    }
+    let files: Vec<String> = match std::fs::read_dir(cache_dir) {
+        Ok(entries) => entries
+            .filter_map(|e| e.ok()?.file_name().into_string().ok())
+            .collect(),
+        Err(_) => return,
+    };
+    for stale in crate::base_source::stale_ipsw_files(&files, &plan.release) {
+        let path = cache_dir.join(&stale);
+        eprintln!("Deleting cached IPSW {}...", path.display());
+        if let Err(e) = std::fs::remove_file(&path) {
+            eprintln!("  warning: could not delete {}: {e}", path.display());
         }
     }
 }
@@ -373,48 +337,6 @@ pub async fn configure_fresh_vm(vm: &str, paths: &VmPaths) -> Result<(), VmError
 mod tests {
     use super::*;
 
-    const CATALOGUE: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
-<plist version="1.0"><dict>
-  <key>Restore</key>
-  <string>https://updates.cdn-apple.com/2026FallFCS/59241290-5d51/UniversalMac_27.0.1_26A434_Restore.ipsw</string>
-  <key>Old</key>
-  <string>https://updates.cdn-apple.com/2025FallFCS/abc/UniversalMac_26.0.1_25A362_Restore.ipsw</string>
-  <string>https://updates.cdn-apple.com/2025FallFCS/def/UniversalMac_26.1_25B78_Restore.ipsw</string>
-  <string>https://updates.cdn-apple.com/2026FallFCS/59241290-5d51/UniversalMac_27.0.1_26A434_Restore.ipsw</string>
-  <string>https://updates.cdn-apple.com/x/UniversalMac_27.0.10_26A999_Restore.ipsw</string>
-  <string>https://updates.cdn-apple.com/x/UniversalMac_27.0.2_26A500_Restore.ipsw</string>
-  <string>https://example.com/not-a-mac/iPhone_27.0_Restore.ipsw</string>
-  <string>http://insecure.example/UniversalMac_27.9_26Z1_Restore.ipsw</string>
-</dict></plist>"#;
-
-    #[test]
-    fn catalogue_parse_reads_mac_restore_urls_only_and_dedupes() {
-        let releases = parse_ipsw_catalogue(CATALOGUE);
-        let versions: Vec<&str> = releases.iter().map(|r| r.version.as_str()).collect();
-        assert_eq!(versions, ["27.0.1", "26.0.1", "26.1", "27.0.10", "27.0.2"]);
-        let first = &releases[0];
-        assert_eq!(first.build, "26A434");
-        assert_eq!(
-            first.url,
-            "https://updates.cdn-apple.com/2026FallFCS/59241290-5d51/UniversalMac_27.0.1_26A434_Restore.ipsw"
-        );
-    }
-
-    #[test]
-    fn select_picks_the_newest_of_the_major_by_numeric_version() {
-        let releases = parse_ipsw_catalogue(CATALOGUE);
-        // 27.0.10 is newer than 27.0.2 numerically, though not lexically.
-        assert_eq!(select_ipsw(&releases, 27).map(|r| r.version.as_str()), Some("27.0.10"));
-        assert_eq!(select_ipsw(&releases, 26).map(|r| r.version.as_str()), Some("26.1"));
-        assert_eq!(select_ipsw(&releases, 28), None);
-    }
-
-    #[test]
-    fn empty_or_unrelated_text_lists_nothing() {
-        assert!(parse_ipsw_catalogue("").is_empty());
-        assert!(parse_ipsw_catalogue("<plist><dict/></plist>").is_empty());
-    }
-
     #[test]
     fn cache_path_names_version_and_build() {
         let r = IpswRelease {
@@ -422,7 +344,6 @@ mod tests {
             build: "26A434".into(),
             url: "https://x/UniversalMac_27.0.1_26A434_Restore.ipsw".into(),
         };
-        assert_eq!(r.major(), Some(27));
         assert_eq!(
             cached_ipsw_path(Path::new("/c"), &r),
             PathBuf::from("/c/macos-27.0.1-26A434.ipsw")

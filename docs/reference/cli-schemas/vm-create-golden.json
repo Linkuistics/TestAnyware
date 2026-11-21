@@ -10,9 +10,30 @@
     "ok": { "type": "boolean" },
     "dry_run": { "type": "boolean", "description": "Present and true when --dry-run was set; the plan is described but nothing is mutated." },
     "platform": { "type": "string", "enum": ["macos", "linux", "windows"], "description": "Target platform. macos, linux, and windows are all supported (all macOS-host work)." },
-    "version": { "type": "string", "description": "OS version to provision. macOS: a major number of 27 or later (a base built once from Apple's IPSW as testanyware-base-macos-<major>) (default 27); any other value is a USAGE_ERROR. linux: 24.04, 22.04 (default 24.04). windows: the release number (default 11)." },
+    "version": { "type": "string", "description": "OS version to provision. macOS: a major number of 27 or later (default 27). The golden holds the latest release of that major. Any other value is a USAGE_ERROR. linux: 24.04 or 22.04 (default 24.04). windows: the release number (default 11)." },
     "name": { "type": "string", "description": "Golden image name. Defaults to testanyware-golden-<platform>-<version>." },
     "iso": { "type": ["string", "null"], "description": "windows only: path to the Windows ARM64 evaluation ISO (null when relying on the cached ISO)." },
+    "release": {
+      "type": "object",
+      "description": "macOS --dry-run only: the release that the base holds. It is the newest VirtualMac2,1 release of the major in Apple's IPSW catalogue (ADR-0027).",
+      "required": ["version", "build", "url"],
+      "properties": {
+        "version": { "type": "string", "description": "The macOS version, for example 27.2.1." },
+        "build": { "type": "string", "description": "The macOS build, for example 26B131." },
+        "url": { "type": "string", "description": "The URL of the restore image (IPSW)." }
+      }
+    },
+    "base": {
+      "type": "object",
+      "description": "macOS --dry-run only: the base VM that the run clones.",
+      "required": ["name", "exists", "older"],
+      "properties": {
+        "name": { "type": "string", "description": "The base VM name testanyware-base-macos-<version>-<build>." },
+        "exists": { "type": "boolean", "description": "Whether tart lists the base. When it is false, the run builds the base from the IPSW (about 25 GB download)." },
+        "older": { "type": "array", "items": { "type": "string" }, "description": "The other base VMs of the major. The run deletes them when the base is ready." }
+      }
+    },
+    "golden_exists": { "type": "boolean", "description": "macOS --dry-run only: whether a golden of this name exists. The run replaces it when the new golden is ready." },
     "created": { "type": "boolean", "description": "Present and true on a successful (non-dry-run) golden creation." },
     "boot_plan": {
       "type": "array",

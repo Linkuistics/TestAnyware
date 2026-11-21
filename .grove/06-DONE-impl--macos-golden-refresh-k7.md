@@ -90,15 +90,6 @@ discards.
   --dry-run` names macOS 27.2.1 (26B131) and the older base
   `testanyware-base-macos-27`. This is the golden-plan seam of the root
   brief.
-- The refresh recipe rebuilds `testanyware-golden-macos-27`. Afterwards
-  `testanyware-base-macos-27.2.1-26B131` exists, and
-  `testanyware-base-macos-27` and `macos-27.0.1-26A434.ipsw` are gone.
-- A clone of the new golden reports `27.2.1` from `sw_vers -productVersion`.
-  The live gate in `live-vm-gate.rs` passes on that golden with
-  `TESTANYWARE_LIVE_VM=1`. This is the golden-build seam of the root brief.
-- After the refresh, the dry run says that the base exists, and it names no
-  older base.
-- `testanyware-golden-macos-tahoe` is deleted.
 - The glossary changed in `golden-refresh-k3`. These pages describe the
   new base name and the refresh: `README.md`, `docs/user/golden-images.md`,
   `docs/user/quick-start.md`, `docs/components/provisioner.md`, their
@@ -110,6 +101,21 @@ discards.
 - The existing suites pass, and no suite gains a compatibility case. Each
   changed prose page passes the controlled-English checker, or it carries a
   marked departure.
+
+### Handed over on 2026-11-22
+
+`macos-golden-refresh-run-k11` owns these items, after the fault fix of
+`setup-assistant-zrle-fault-k10`:
+
+- The refresh recipe rebuilds `testanyware-golden-macos-27`. Afterwards
+  `testanyware-base-macos-27.2.1-26B131` exists, and
+  `testanyware-base-macos-27` and `macos-27.0.1-26A434.ipsw` are gone.
+- A clone of the new golden reports `27.2.1` from `sw_vers -productVersion`.
+  The live gate in `live-vm-gate.rs` passes on that golden with
+  `TESTANYWARE_LIVE_VM=1`. This is the golden-build seam of the root brief.
+- After the refresh, the dry run says that the base exists, and it names no
+  older base.
+- `testanyware-golden-macos-tahoe` is deleted.
 
 ## Notes
 
@@ -123,3 +129,74 @@ discards.
 - Keep the build logs in scratch, not in the repository.
 - `linux-golden-refresh-k8` changes the Linux build. The release leaf
   follows both golden leaves.
+
+## Decisions (running log)
+
+- 2026-11-22, parser. The read uses `plist::Value` of the `plist` crate
+  1.10, with the serde feature off. Cargo locked 1.10.4, which needs Rust
+  1.88. The workspace `rust-version` 1.81 binds nothing today: russh 0.61.1
+  already needs 1.85. docs.rs gives the same `Value::from_reader_xml`,
+  `Value::as_dictionary` and `Dictionary::get` for 1.8.0 and 1.10.4. The
+  catalogue of 2026-11-22 still lists 27.2.1 as on 2026-11-21.
+- 2026-11-22, placement. The catalogue read, the base names and the plan
+  are pure, so they move to `base_source.rs`, which builds on every host.
+  `ipsw_base.rs` keeps the `curl` and `tart` reads, the build and the
+  refresh.
+- 2026-11-22, plan input. The plan also takes the golden name and returns
+  `golden_exists`. So the dry run reads `tart list` once, and the hold, the
+  build and the dry run share one answer.
+- 2026-11-22, other hosts. The real run fails on a host that is not macOS
+  with `BACKEND_UNSUPPORTED`. The dry run now fails the same way, because
+  it reads `tart list`. The contract tests of the plan are macOS-only.
+- 2026-11-22, fakes. The shared `fake-tart` lists
+  `testanyware-base-macos-27.2.1-26B131` in place of
+  `testanyware-base-macos-27`. A test that runs the fast checks also puts a
+  fake `curl` on `PATH`, which prints the trimmed catalogue. No test reads
+  the network.
+- 2026-11-22, refresh failures. A refresh that cannot delete an older base
+  or a cached IPSW warns and goes on. The base is ready by then, and the
+  next golden creation tries the deletion again.
+- 2026-11-22, a base that went away. Boot 1 builds the base of the plan
+  when `tart list` no longer names it, even if the plan said that it
+  existed. The hold then lacks `<base>-building`, but the build still makes
+  the planned release.
+- 2026-11-22, controls. A mutation of `VIRTUAL_MAC` to `Mac17,10` failed 4
+  unit tests and 3 contract tests, and the restored file passed them. The
+  repository sweep for `testanyware-base-macos-27` found only the
+  deliberate older-base references and the frozen evidence under
+  `experiments/`. The same pattern found ADR-0027.
+- 2026-11-22, docs. The golden images guide gained "Keeping goldens
+  current", with the rule for each platform. Its Linux item says only that
+  the build installs the current Ubuntu updates, because
+  `linux-golden-refresh-k8` owns the new Linux mechanism. The admission-queue
+  spec names the plan as a fast check, and its diagram deletes the older
+  bases and the earlier golden. The provisioner page names `helpers/`, the
+  directory that exists, in place of `autounattend/`.
+- 2026-11-22, format. The changed Rust files were not rustfmt-clean before
+  this leaf. Only `base_source.rs`, which this leaf rewrote, is formatted.
+- 2026-11-22, golden-plan seam. Before the refresh, the dry run on this
+  Mac named macOS 27.2.1 (26B131), the missing base
+  `testanyware-base-macos-27.2.1-26B131`, the older base
+  `testanyware-base-macos-27` and the existing golden. The seam passed.
+- 2026-11-22, suites. `task cli:test` passed: 62 suites, 1724 tests, 0
+  failed, 12 live tests ignored. The changed files did not move during the
+  run. After the run, a clippy fix in `base_source.rs` passed the 380 unit
+  tests of `testanyware-vm` again.
+- 2026-11-22, refresh attempt. `task vm:refresh-golden-macos` passed the
+  fast checks, got a slot, downloaded the IPSW of 27.2.1 and installed it.
+  The boot to Setup Assistant then failed with
+  `RFB error: protocol violation: ZRLE: tile stream ended mid-pixel`. The
+  build deleted its `-building` VM. The earlier golden and the older base
+  stayed, as the replacement rule requires.
+- 2026-11-22, split. A root-cause hunt in the RFB client does not fit this
+  session, and the question is precise. So the work splits into flat
+  siblings, which share the context of the root. `setup-assistant-zrle-fault-k10`
+  owns the fault. `macos-golden-refresh-run-k11` owns the refresh and the
+  live criteria that need it. This leaf retires against the other criteria.
+- 2026-11-22, tahoe golden. The auto-mode permission layer refused
+  `testanyware vm delete testanyware-golden-macos-tahoe`. The deletion moves
+  to `macos-golden-refresh-run-k11`, which asks the owner first.
+- 2026-11-22, review. This leaf cut no `review-impl` leaf. The plist calls
+  carry a docs.rs citation, the mutation control failed the new tests, and
+  the live refresh of `macos-golden-refresh-run-k11` tests the plan, the
+  build and the refresh on the real catalogue.

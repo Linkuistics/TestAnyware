@@ -492,8 +492,12 @@ while the app runs, because the app reads the file only when it starts.
 ### Golden creation
 
 On a macOS host, golden creation asks the app for a slot after its fast checks.
-These are the directory check, the SSH key and the agent binary. It asks before
-it changes anything. Its guest traffic keeps the direct path. The request goes
+These are the directory check, the SSH key, the agent binary and the plan of the
+base VM. The plan reads Apple's IPSW catalogue and `tart list` (ADR-0027). It
+says whether an IPSW build boots `<base>-building`. Golden creation asks before
+it changes anything.
+
+Its guest traffic keeps the direct path. The request goes
 over the app's Unix socket, which Local Network privacy does not cover.
 
 - **The app is not running, or it is not installed.** Golden creation runs as
@@ -530,7 +534,7 @@ sequenceDiagram
   participant G as vm create-golden (Terminal)
   participant P as TestAnyware app
   participant T as tart
-  G->>G: fast checks: directories, SSH key, agent binary
+  G->>G: fast checks: directories, SSH key, agent binary, plan of the base
   G->>P: POST /v1/slots: the VMs that it boots
   P-->>G: waiting, place 1, held by A and B
   Note over P: A stops
@@ -538,10 +542,11 @@ sequenceDiagram
   opt an IPSW base build
     G->>T: tart create --from-ipsw, then a boot for Setup Assistant
   end
+  G->>T: delete the older bases of the major
   G->>T: clone the setup VM, then boot 1
   G->>T: shut down, boot into Recovery, halt, boot again (twice)
   Note over P,T: Between boots no guest runs.<br/>The hold keeps the slot in the count
-  G->>T: shut down, clone to the golden, delete the setup VM
+  G->>T: shut down, delete the earlier golden, clone to the golden, delete the setup VM
   G--)P: close the connection
   P->>P: release the slot, admit the next waiter
   alt golden creation crashes

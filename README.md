@@ -469,7 +469,8 @@ All images share these properties:
 
 ### macOS (`testanyware-golden-macos-27`)
 
-- **macOS 27** (Apple Silicon, built once from Apple's IPSW into a base VM, `testanyware-base-macos-27`). This is the default macOS golden: `vm start --platform macos` clones it when you pass no `--base`
+- **The latest release of macOS 27** (Apple Silicon). Golden creation builds a base VM, `testanyware-base-macos-<version>-<build>`, from Apple's IPSW of that release. This is the default macOS golden: `vm start --platform macos` clones it when you pass no `--base`
+- **Refresh** — each golden holds the latest release of its major at the time of its build (ADR-0027). Run `vm create-golden` again to refresh it. A macOS refresh deletes the older bases and IPSWs, and it replaces the golden only when the new golden is ready. `vm create-golden --platform macos --dry-run` names the release and says whether the run builds a new base
 - **Only macOS 27 or a later major** — `vm create-golden --platform macos --version` takes a major number of 27 or later. A Cirrus Labs tag (`tahoe`, `sequoia`, `sonoma`) or a major below 27 fails with a usage error before the command clones or downloads anything
 - **Agent autostart** — LaunchAgent at `/usr/local/bin/testanyware-agent`
   (label `com.linkuistics.testanyware-agent`)

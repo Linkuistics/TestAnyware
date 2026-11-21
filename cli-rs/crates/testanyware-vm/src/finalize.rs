@@ -480,7 +480,14 @@ async fn finalize_and_shutdown(setup: &SetupVm) {
 /// `tart clone <setup> <golden>` then `tart delete <setup>` (script lines
 /// 807–809). The clone is the one fatal step here — a failed clone means no
 /// golden. A failed delete only leaks the (stopped) setup VM, so it warns.
+///
+/// An earlier golden of the same name is deleted here, just before the clone, and not in boot 1.
+/// So a build that fails before this point keeps the earlier golden (ADR-0027).
 fn clone_to_golden(setup_id: &str, name: &str) -> Result<(), VmError> {
+    if crate::tart::vm_exists(name) {
+        eprintln!("Replacing the earlier golden image '{name}'...");
+        crate::tart::remove_existing(name);
+    }
     eprintln!("Creating golden image '{name}'...");
     crate::tart::clone(setup_id, name)?;
     if !crate::tart::delete_golden(setup_id) {

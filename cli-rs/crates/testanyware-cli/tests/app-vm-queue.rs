@@ -1857,9 +1857,10 @@ impl Fixture {
         ))
     }
 
-    /// A host that passes the fast checks of golden creation: an SSH keypair under `HOME`, and an
-    /// agent binary named by the override.
+    /// A host that passes the fast checks of golden creation: an SSH keypair under `HOME`, an
+    /// agent binary named by the override, and a fake `curl` that prints the IPSW catalogue.
     fn golden_host(&self) -> PathBuf {
+        self.app.add_golden_tools();
         let ssh = self.app.root().join(".ssh");
         std::fs::create_dir_all(&ssh).unwrap();
         std::fs::write(ssh.join("id_ed25519"), "key").unwrap();
@@ -1870,7 +1871,8 @@ impl Fixture {
     }
 
     /// The real `vm create-golden` of a macOS guest, in the background. The tools of the CLI are
-    /// the fake `tart` first. The fake lists the base VM of macOS 27 and cannot clone it, so the
+    /// the fake `tart` and `curl` first. The fake `tart` lists the base VM of macOS 27.2.1, which
+    /// the catalogue of the fake `curl` names. It cannot clone that base, so the
     /// pipeline stops at its first `tart clone`, after the slot. No test runs the real pipeline.
     fn spawn_golden(&self, agent: &std::path::Path) -> Client {
         let mut path = std::ffi::OsString::from(self.app.tool_dir());

@@ -41,7 +41,7 @@ use std::time::Duration;
 
 use crate::error::VmError;
 use crate::id::generate_id;
-use crate::base_source::{base_vm_name, macos_major};
+use crate::base_source::{macos_major, GoldenPlan};
 use crate::paths::VmPaths;
 use crate::ssh::SshSession;
 
@@ -303,8 +303,8 @@ pub(crate) fn write_scratch(dir: &Path, name: &str, contents: &[u8]) -> Result<P
 }
 
 /// What golden creation settles before it changes anything: the SSH key, the agent binary, the
-/// name of the setup VM and the VMs that it will boot (spec "admission-queue": "Golden
-/// creation"). The command asks the TestAnyware app for a slot between [`GoldenPreflight::check`]
+/// name of the setup VM, the plan of the base and the VMs that it will boot (spec
+/// "admission-queue": "Golden creation", ADR-0027). The command asks the TestAnyware app for a slot between [`GoldenPreflight::check`]
 /// and the first change, and it names [`hold_names`](Self::hold_names) in its request.
 #[derive(Debug, Clone)]
 pub struct GoldenPreflight {
@@ -313,16 +313,17 @@ pub struct GoldenPreflight {
     agent_bin: PathBuf,
     /// The throwaway setup VM's tart name (`testanyware-setup-<hex8>`).
     pub setup_id: String,
-    /// The name `<base>-building` of the VM that an IPSW build boots, when the base VM does not
-    /// exist yet. The build renames the VM only after its last boot.
-    pub building: Option<String>,
+    /// The release, the base and the older bases. Boot 1 builds the base of this plan, so the
+    /// hold names the same `<base>-building` VM that the build boots.
+    pub plan: GoldenPlan,
 }
 
 impl GoldenPreflight {
     /// The fast checks: the host's SSH keypair and the agent binary. They fail before golden
     /// creation boots or changes anything, and they say which key and which binary they found.
-    /// The check also makes the name of the setup VM, and it reads `tart` to learn whether an
-    /// IPSW build will boot a base VM. It changes nothing.
+    /// The check also makes the name of the setup VM. It reads Apple's IPSW catalogue and
+    /// `tart list` to make the plan, which says whether an IPSW build will boot a base VM. It
+    /// changes nothing.
     pub fn check(opts: &GoldenOptions) -> Result<Self, VmError> {
         // Fail fast on host prerequisites before booting anything.
         let (pubkey, private_key) = resolve_ssh_key()?;
@@ -334,14 +335,17 @@ impl GoldenPreflight {
         // or a golden. `generate_id()` yields `testanyware-<hex8>`; splice in a
         // `setup-` marker. Ports `_SETUP_VM="testanyware-setup-$$"`.
         let setup_id = generate_id().replacen("testanyware-", "testanyware-setup-", 1);
-        let base = base_vm_name(macos_major(&opts.version)?);
-        let building = (!crate::tart::vm_exists(&base)).then(|| format!("{base}-building"));
+        let plan = crate::ipsw_base::current_plan(macos_major(&opts.version)?, &opts.name)?;
+        eprintln!(
+            "Using macOS {} ({}) from Apple's IPSW catalogue, base VM '{}'.",
+            plan.release.version, plan.release.build, plan.base
+        );
         Ok(Self {
             pubkey,
             private_key,
             agent_bin,
             setup_id,
-            building,
+            plan,
         })
     }
 
@@ -349,7 +353,7 @@ impl GoldenPreflight {
     /// `<base>-building`. Golden creation never boots the finished base.
     pub fn hold_names(&self) -> Vec<String> {
         let mut names = vec![self.setup_id.clone()];
-        names.extend(self.building.clone());
+        names.extend(self.plan.building());
         names
     }
 }
@@ -374,18 +378,13 @@ pub async fn provision_boot1_after(
         private_key,
         agent_bin,
         setup_id,
-        ..
+        plan,
     } = preflight;
 
-    // Delete any existing golden of the same name first (script lines ~98–105).
-    if crate::tart::vm_exists(&opts.name) {
-        eprintln!("Deleting existing golden image '{}'...", opts.name);
-        crate::tart::remove_existing(&opts.name);
-    }
-
-    // The base to clone: a base built from Apple's IPSW for the macOS major,
-    // built now if it does not exist yet.
-    let base = crate::ipsw_base::ensure_base_vm(macos_major(&opts.version)?, paths).await?;
+    // The base to clone: the base of the plan, built now from Apple's IPSW if it does not exist
+    // yet. An earlier golden of the same name stays until the final clone replaces it
+    // (`finalize.rs`), so a failed build keeps it (ADR-0027).
+    let base = crate::ipsw_base::ensure_base_vm(plan, paths).await?;
     eprintln!("Cloning {base} → {setup_id}...");
     crate::tart::clone(&base, setup_id)?;
 

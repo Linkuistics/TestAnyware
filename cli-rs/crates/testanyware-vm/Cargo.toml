@@ -29,6 +29,10 @@ thiserror = { workspace = true }
 getrandom = { workspace = true }
 russh = { workspace = true }
 russh-sftp = { workspace = true }
+# Golden creation reads Apple's IPSW catalogue, a property list (`base_source.rs`, ADR-0027).
+# The read uses `Value` only, so the serde feature is off. 1.10 needs Rust 1.88.
+# API: https://docs.rs/plist/1.10.4/plist/enum.Value.html
+plist = { version = "1.10", default-features = false }
 
 [target.'cfg(unix)'.dependencies]
 nix = { workspace = true }

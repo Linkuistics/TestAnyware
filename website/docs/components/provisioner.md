@@ -19,7 +19,7 @@ provisioner/
 │   ├── vm-stop.sh                        # wrapper around `testanyware vm stop`
 │   ├── vm-list.sh                        # wrapper around `testanyware vm list`
 │   └── vm-delete.sh                      # wrapper around `testanyware vm delete`
-└── autounattend/                         # Windows unattended-install XML + payload
+└── helpers/                              # files that golden creation embeds or uploads, such as autounattend.xml
 ```
 
 ## Key files
@@ -28,10 +28,10 @@ provisioner/
 |------|------|
 | `scripts/vm-start.sh`, `vm-stop.sh`, `vm-list.sh`, `vm-delete.sh` | Thin `exec testanyware vm …` wrappers. They stay, so that the existing callers (docs, CI, tests) keep working. The CLI is canonical. |
 | `scripts/_testanyware-paths.sh` | The shell copy of `VMPaths.swift`. Keep the two in step. |
-| `testanyware vm create-golden --platform macos` | Builds `testanyware-golden-macos-27`. It is an in-process CLI command, with no script. It installs macOS 27 once from Apple's IPSW into `testanyware-base-macos-27`. `--version` takes a macOS major of 27 or later. The command disables SIP and enables it again to install the TCC grant of the agent. |
+| `testanyware vm create-golden --platform macos` | Builds or refreshes `testanyware-golden-macos-27`. It is an in-process CLI command, with no script. It clones the base VM of the latest release of the major, `testanyware-base-macos-<version>-<build>`. When that base does not exist, the command builds it from Apple's IPSW, and then it deletes the older bases and IPSWs (ADR-0027). `--version` takes a macOS major of 27 or later. The command disables SIP and enables it again to install the TCC grant of the agent. |
 | `testanyware vm create-golden --platform linux` | Builds `testanyware-golden-linux-24.04`. It is an in-process CLI command, with no script. It provisions Ubuntu 24.04 through tart. Over 2 normal boots, it installs `ubuntu-desktop-minimal`, AT-SPI2, the agent and a systemd user service. |
 | `testanyware vm create-golden --platform windows` | Builds `testanyware-golden-windows-11` under `$XDG_DATA_HOME/testanyware/golden/`. It is an in-process CLI command, with no script. It drives QEMU and swtpm through a Windows 11 ARM64 Microsoft evaluation ISO, and it provisions over the in-VM agent, with no SSH. The password of `admin` never expires, and the command checks this in the guest with `net user admin`. The first run needs `--iso <path>`. |
-| `autounattend/` | The Windows unattended-install XML and payload. The command injects the `publish` directory of the agent and a Task Scheduler XML file here. |
+| `helpers/autounattend.xml` | The Windows unattended-install XML. The Windows golden command writes it to the install media, with the setup scripts of `helpers/`, the agent binary and the VirtIO drivers. |
 
 ## Build / test
 

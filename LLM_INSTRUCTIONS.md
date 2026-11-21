@@ -81,6 +81,17 @@ testanyware vm create-golden --platform linux
 testanyware vm create-golden --platform windows --iso ~/Downloads/Win11_ARM64.iso
 ```
 
+A golden name names a major only, such as `testanyware-golden-macos-27`. The
+golden holds the latest release of that major at the time of its build
+(ADR-0027). To refresh a golden, run the same `vm create-golden` again. The
+earlier golden goes only when the new golden is ready.
+
+For macOS, the base VM
+`testanyware-base-macos-<version>-<build>` carries the release.
+`vm create-golden --platform macos --dry-run` names the release, and it says
+whether the run builds a new base (about 25 GB download). A macOS refresh
+deletes the older bases and the cached IPSWs of other releases.
+
 `vm start --viewer` opens a VNC viewer window. On macOS the first use
 prompts for Automation permission.
 

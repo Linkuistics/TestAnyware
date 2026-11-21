@@ -35,13 +35,19 @@ ln -sf "$PWD/target/release/testanyware" /usr/local/bin/testanyware
 testanyware vm create-golden --platform macos
 ```
 
-The default golden is macOS 27. The first run installs macOS from Apple's IPSW (about 25 GB, cached under
+The default golden holds the latest release of macOS 27. The first run installs
+that release from Apple's IPSW (about 25 GB, cached under
 `~/.local/share/testanyware/cache/`) into a base VM,
-`testanyware-base-macos-27`, by driving Setup Assistant. The command then
-installs the TestAnyware agent, grants accessibility, and finalises the
-golden `testanyware-golden-macos-27`. Later runs reuse the base. You only
-need to do this once per host. Expect about 30 minutes extra on the first
-run.
+`testanyware-base-macos-<version>-<build>`, by driving Setup Assistant. The
+command then installs the TestAnyware agent, grants accessibility, and
+finalises the golden `testanyware-golden-macos-27`. Later runs reuse the base
+until Apple releases a new macOS 27. Expect about 30 minutes extra on the
+first run.
+
+To refresh the golden after a new release, run the same command again. It
+builds the base of the new release, deletes the older base, and replaces the
+golden when the new one is ready. `--dry-run` names the release and says
+whether the run builds a new base.
 
 TestAnyware builds macOS 27 or a later major only. `--version` takes a major
 number, and `--version tahoe` or `--version 26` fails with a usage error.

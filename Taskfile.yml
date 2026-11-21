@@ -1651,7 +1651,7 @@ tasks:
       - python3 -I '{{.ROOT_DIR}}/scripts/vm_inventory.py' absent {{.NAME | shellQuote}} --cli {{.GUARD_CLI | shellQuote}} --tart {{.GUARD_TART | shellQuote}}
 
   vm:create-golden-macos:
-    desc: 'Build a macOS golden that carries this checkout''s agent, not the Homebrew-bundled one. Needs NAME=<golden> (use a new name: a rebuild replaces a golden of the same name); optional VERSION (default 27). About 20 minutes when the base VM exists. Run it from a terminal that may reach guest IPs (macOS Local Network permission)'
+    desc: 'Build a macOS golden of a new NAME that carries the agent of this checkout, not the Homebrew-bundled one. The guard refuses a NAME that exists. Optional VERSION is the macOS major (default 27). The golden holds the latest release of the major. When the base VM of that release does not exist, the build makes it from Apple''s IPSW (about 25 GB download) and deletes the older bases and IPSWs. About 20 minutes when the base exists. Run it from a terminal that may reach guest IPs (macOS Local Network permission). vm:refresh-golden-macos replaces the golden of the default name'
     deps: [cli:build, agent:macos:build]
     vars:
       CLI: '{{.CLI_DIR}}/target/debug/testanyware'
@@ -1664,6 +1664,16 @@ tasks:
       - task: vm:golden-name-free
         vars: {NAME: '{{.NAME}}', GUARD_CLI: '{{.CLI}}'}
       - '{{.CLI}} vm create-golden --platform macos --version {{.VERSION | default "27"}} --name {{.NAME | shellQuote}}'
+
+  vm:refresh-golden-macos:
+    desc: 'Refresh the macOS golden of the default name (testanyware-golden-macos-<VERSION>) to the latest release of its major, with the agent of this checkout (ADR-0027). Optional VERSION is the macOS major (default 27). It skips the name guard of vm:create-golden-macos, because the refresh replaces that golden, and only when the new golden is ready. Run `testanyware vm create-golden --platform macos --dry-run` first: it names the release and says whether the base is built again (about 25 GB download, and about 10 more minutes). Run it from a terminal that may reach guest IPs (macOS Local Network permission)'
+    deps: [cli:build, agent:macos:build]
+    vars:
+      CLI: '{{.CLI_DIR}}/target/debug/testanyware'
+    env:
+      TESTANYWARE_AGENT_BIN_OVERRIDE: '{{.ROOT_DIR}}/agents/macos/.build/release/testanyware-agent'
+    cmds:
+      - '{{.CLI}} vm create-golden --platform macos --version {{.VERSION | default "27"}}'
 
   vm:create-golden-linux:
     desc: 'Build a Linux golden that carries this checkout''s agent, not the Homebrew-bundled one. Needs NAME=<golden> (use a new name: a rebuild replaces a golden of the same name); optional VERSION (default 24.04). The build grows the disk to 50 GB and fails when / is under 40 GB. About 20 to 40 minutes, and it pulls an image. Run it from a terminal that may reach guest IPs (macOS Local Network permission)'
@@ -1690,7 +1700,7 @@ tasks:
       - scripts/linux-golden-disk-live.sh {{.GOLDEN}}
 
   vm:ipsw-base-live:
-    desc: 'Does `ensure_base_vm(27)` build testanyware-base-macos-27 from Apple''s IPSW and does the result pass its contract (SSH admin/admin, passwordless sudo, auto-login, no sleep)? A no-op build if the base exists. First run downloads about 25 GB; the install is about 4 minutes and Setup Assistant about 5 more. Run from a terminal that may reach guest IPs (macOS Local Network permission)'
+    desc: 'Does `ensure_base_vm` build the base VM of the latest macOS 27 release (testanyware-base-macos-<version>-<build>) from Apple''s IPSW, and does the result pass its contract (SSH admin/admin, passwordless sudo, auto-login, no sleep)? It builds nothing when that base exists. Then it deletes the older macOS 27 bases and the cached IPSWs of other releases, as golden creation does. A new release downloads about 25 GB. The install takes about 4 minutes and Setup Assistant about 5 more. Run from a terminal that may reach guest IPs (macOS Local Network permission)'
     dir: '{{.CLI_DIR}}'
     env:
       TESTANYWARE_LIVE_IPSW_BASE: '1'

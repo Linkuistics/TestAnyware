@@ -777,7 +777,8 @@ OUTPUT:
     Stable formats: text (a human-readable plan under --dry-run),
     --json (schema: vm-create-golden). Under --dry-run the JSON envelope
     sets `dry_run: true` and carries the plan array (`boot_plan` for macOS
-    and linux, `plan` for windows); nothing is mutated.
+    and linux, `plan` for windows). Nothing changes. The macOS plan also
+    carries `release`, `base` (`name`, `exists`, `older`) and `golden_exists`.
 
 EXIT CODES:
     0  success (including --dry-run)
@@ -787,11 +788,16 @@ EXIT CODES:
 
 PLATFORM:
     Requires a macOS host. macOS drives a 5-boot SIP/TCC cycle on a base VM.
-    --version takes a macOS major number, 27 (the default) or later. The first
-    run installs it from Apple's IPSW (about 25 GB, cached) into the base VM
-    testanyware-base-macos-27 by driving Setup Assistant, and later runs reuse
-    that base. A Cirrus Labs tag (tahoe, sequoia, sonoma) or a major below 27
-    is a usage error (exit 2). linux clones a Cirrus Labs vanilla
+    --version takes a macOS major number, 27 (the default) or later. The
+    golden holds the latest release of that major: the newest VirtualMac2,1
+    entry of Apple's IPSW catalogue. Its base VM is
+    testanyware-base-macos-<version>-<build>. When that base does not exist,
+    the run downloads the IPSW (about 25 GB, cached) and drives Setup
+    Assistant to build it. When the base is ready, the run deletes each other
+    base of the major and each cached IPSW of another release. The run and
+    the dry run read the catalogue over the network. A Cirrus Labs tag
+    (tahoe, sequoia, sonoma) or a major below 27 is a usage error (exit 2).
+    linux clones a Cirrus Labs vanilla
     Ubuntu image via tart and provisions Ubuntu Desktop + the agent over SSH
     in 2 normal boots (no SIP/TCC cycle). windows boots an unattended install
     from a Microsoft evaluation ISO under QEMU+swtpm and provisions over the
@@ -800,7 +806,8 @@ PLATFORM:
 SLOTS:
     A macOS golden boots its VM several times, and macOS runs two guests at
     most. When the TestAnyware app runs, the command asks it for a slot after
-    its fast checks (the directories, the SSH key and the agent binary) and
+    its fast checks (the directories, the SSH key, the agent binary and the
+    plan of the base) and
     before it changes anything. It waits in the same queue as `vm start --wait`,
     with no bound, and stderr shows its place and the VMs that hold the slots.
     Ctrl-C ends the wait. The command then holds the slot until its setup VM
@@ -810,18 +817,20 @@ SLOTS:
     Windows golden creation take no slot.
 
 IDEMPOTENCY:
-    Re-running replaces any existing golden of the same name. The build
-    runs against a fresh throwaway setup VM each time.
+    Re-running replaces a golden of the same name, and so refreshes it to the
+    latest release. The earlier golden goes only when the new golden is
+    ready, so a failed build keeps it. The build runs against a fresh
+    throwaway setup VM each time.
 
 EXAMPLES:
-    # Show the boot plan without creating anything
+    # Show the release, the base and the boot plan without creating anything
     testanyware vm create-golden --platform macos --dry-run
 
     # Plan as JSON
     testanyware vm create-golden --platform macos --dry-run --json
 
-    # Create the default macOS 27 golden (macOS host; the first run builds a
-    # base VM from Apple's IPSW)
+    # Create or refresh the default macOS 27 golden (macOS host). A new
+    # release builds a new base VM from Apple's IPSW
     testanyware vm create-golden --platform macos
 
     # Name the macOS major (27 or later) in the plan
@@ -2117,9 +2126,9 @@ enum VmAction {
         /// Target platform: `macos`, `linux`, or `windows` (all require a macOS host).
         #[arg(long, value_name = "PLATFORM")]
         platform: String,
-        /// OS version to provision. macOS: a major number of 27 or later (built
-        /// once from Apple's IPSW) [default: 27]. linux: 24.04, 22.04 [default:
-        /// 24.04]. windows: the release number [default: 11].
+        /// OS version to provision. macOS: a major number of 27 or later. The
+        /// golden holds the latest release of it [default: 27]. linux: 24.04,
+        /// 22.04 [default: 24.04]. windows: the release number [default: 11].
         #[arg(long, value_name = "VERSION")]
         version: Option<String>,
         /// Golden image name [default: testanyware-golden-<platform>-<version>].

@@ -41,7 +41,8 @@ use std::time::Duration;
 use testanyware_vm::golden::{
     private_key_for, provision_boot1, ssh_pubkey_candidates, GoldenOptions, SetupVm,
 };
-use testanyware_vm::base_source::{base_vm_name, macos_major};
+use testanyware_vm::base_source::macos_major;
+use testanyware_vm::ipsw_base::current_plan;
 use testanyware_vm::paths::VmPaths;
 use testanyware_vm::recovery::recovery_boot_csrutil;
 use testanyware_vm::ssh::SshSession;
@@ -88,7 +89,9 @@ async fn ensure_minimal_setup_vm(paths: &VmPaths) -> SetupVm {
         tokio::time::sleep(Duration::from_secs(2)).await;
     }
 
-    let base = base_vm_name(macos_major(&version()).expect("a macOS major of 27 or later"));
+    // The base of the latest release of the major, as golden creation plans it (ADR-0027).
+    let major = macos_major(&version()).expect("a macOS major of 27 or later");
+    let base = current_plan(major, "testanyware-golden-macos-27").expect("plan the base VM").base;
     eprintln!("Cloning {base} -> {SETUP_ID}...");
     tart::clone(&base, SETUP_ID).expect("tart clone base VM");
 

@@ -468,6 +468,22 @@ impl TestApp {
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
     }
 
+    /// Put a fake `curl` in the tool directory. It prints the trimmed IPSW catalogue of
+    /// 2026-11-21, so that golden creation plans macOS 27.2.1 (26B131) with no network. Put a fake
+    /// `tart` there too when the test has none, which lists no VM. Returns a `PATH` that searches
+    /// the tool directory first, for the environment of the CLI.
+    pub fn add_golden_tools(&self) -> String {
+        self.add_tool("curl", &format!("cat '{}'", ipsw_catalogue().display()));
+        if !self.tool_dir().join("tart").exists() {
+            self.add_tool("tart", r#"[ "$1" = list ] && echo '[]'"#);
+        }
+        format!(
+            "{}:{}",
+            self.tool_dir().display(),
+            std::env::var("PATH").unwrap_or_default()
+        )
+    }
+
     /// Write the sidecars of a VM that a `vm start` left, as the lifecycle code writes them. The
     /// meta names the test process, which is alive.
     pub fn add_sidecars(&self, id: &str, platform: &str, tool: &str, vnc_port: u16) {
@@ -600,6 +616,13 @@ impl TestApp {
             .output()
             .unwrap_or_else(|e| panic!("run `{CLI} {}`: {e}", args.join(" ")))
     }
+}
+
+/// The trimmed copy of Apple's IPSW catalogue of 2026-11-21 that the unit tests of golden
+/// creation read.
+pub fn ipsw_catalogue() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../testanyware-vm/tests/fixtures/ipsw-catalogue-2026-11-21.xml")
 }
 
 // ---- reading an outcome ----

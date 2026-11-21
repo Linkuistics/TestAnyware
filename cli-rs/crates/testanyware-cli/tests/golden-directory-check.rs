@@ -163,9 +163,10 @@ fn golden_creation_expects_the_built_in_directories_when_no_file_names_them() {
 fn a_dry_run_changes_nothing_and_asks_no_directory_check() {
     let _serial = serial();
     let app = TestApp::not_running();
+    let path = app.add_golden_tools();
     let out = app.cli_with(
         &["vm", "create-golden", "--platform", "macos", "--dry-run", "--json"],
-        &[],
+        &[("PATH", path.as_str())],
     );
     assert_eq!(out.code(), 0, "{}\n{}", out.out(), out.err());
 }
