@@ -74,13 +74,18 @@ _Avoid_: "agent ready" (blurs healthy with accessible). Also avoid treating
 `accessible: false` as unhealthy.
 
 **Golden image**:
-A pre-built per-platform VM disk image (`testanyware-golden-<platform>-...`)
-that `vm start` clones to spawn a fresh instance.
+A pre-built per-platform VM disk image (`testanyware-golden-<platform>-<major>`)
+that `vm start` clones to spawn a fresh instance. Its name names a major only,
+and it holds the latest release of that major at the time of its build
+(ADR-0027).
+_Avoid_: a point release in a golden name. A refresh keeps the name.
 
 **Base VM** (macOS golden creation):
 The stopped tart VM a macOS *Golden image* is built from. It exists for macOS 27
-or a later major (`--version 27`, the default). TestAnyware builds it once from
-Apple's IPSW as `testanyware-base-macos-<major>`.
+or a later major (`--version 27`, the default). TestAnyware builds it from
+Apple's IPSW of the latest release of the major, as
+`testanyware-base-macos-<version>-<build>`. Golden creation deletes each older
+Base VM of the major (ADR-0027).
 
 The IPSW build runs `tart create --from-ipsw`, drives Setup Assistant over RFB +
 OCR and enables Remote Login. Then it gives the VM the first-contact state that

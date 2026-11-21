@@ -21,6 +21,9 @@ on this Mac, then move and push `main`.
 - `origin/main` holds the final commit.
 - The release notes state the new host requirement and the removal of the
   keeper.
+- The release notes state the golden rule of ADR-0027. They say that the
+  first macOS `vm create-golden` deletes the base VM of 2.9.0 and builds a
+  base of the latest release.
 
 ## Notes
 

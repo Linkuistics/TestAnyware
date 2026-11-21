@@ -41,7 +41,9 @@ of the release leaf, which comes last.
 - ADRs: `docs/adr/0018-a-macos-host-runs-the-latest-macos-27-and-tart.md`
   for the host requirement and the removal of the keeper, and
   `docs/adr/0004-each-command-opens-its-own-guest-connections.md` for why
-  each command opens its own connection.
+  each command opens its own connection, and
+  `docs/adr/0027-each-golden-holds-the-latest-release-of-its-major.md` for
+  the golden rule.
 - Research: `docs/research/tart-vnc-reconnect-crash-macos-27.md` for the idle
   fault, and `docs/research/tart-vnc-reset-drops-input-macos-27.md` for the
   fault of issue #12.
