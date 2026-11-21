@@ -4,78 +4,81 @@ title: Golden Images
 
 # Golden Images
 
-TestAnyware boots every VM from a pre-built golden image. Golden image
-creation is a one-time setup step per platform and takes 10-40 minutes
-depending on the OS.
+TestAnyware boots every VM from a pre-built golden image. You create the golden
+image of each platform once. Creation takes 10 to 40 minutes, by OS.
 
 ## Shared properties (all platforms)
 
 All golden images share these properties:
 
-- **User** — `admin`, with autologin to desktop session.
-- **testanyware-agent** — HTTP service on port 8648, started automatically on boot.
-- **Solid gray wallpaper** — clean background for screenshot analysis.
+- **User** — `admin`, with autologin to the desktop session.
+- **testanyware-agent** — an HTTP service on port 8648. It starts automatically at boot.
+- **Solid grey wallpaper** — a clean background for screenshot analysis.
 - **Notifications and widgets disabled** — no visual clutter during tests.
 
 ## macOS (`testanyware-golden-macos-27`)
 
-- **macOS 27** (Apple Silicon, built once from Apple's IPSW into a base VM,
-  `testanyware-base-macos-27`). This is the default macOS golden: `vm start
-  --platform macos` clones it when you pass no `--base`.
+- **macOS 27** (Apple Silicon). Golden creation builds a base VM,
+  `testanyware-base-macos-27`, once from Apple's IPSW. This is the default
+  macOS golden: `vm start --platform macos` clones it when you pass no
+  `--base`.
 - **Only macOS 27 or a later major.** `vm create-golden --platform macos
   --version` takes a major number of 27 or later. A Cirrus Labs tag (`tahoe`,
-  `sequoia`, `sonoma`) or a major below 27 fails with a usage error before the
-  command clones or downloads anything.
-- **Agent autostart** — LaunchAgent at `/usr/local/bin/testanyware-agent`
+  `sequoia`, `sonoma`) or a major below 27 fails with a usage error. The
+  command fails before it clones or downloads anything.
+- **Agent autostart** — a LaunchAgent at `/usr/local/bin/testanyware-agent`
   (label `com.linkuistics.testanyware-agent`).
-- **Accessibility** — TCC grant via system TCC database with code
-  signing requirement (SIP disable/enable cycle during image creation).
+- **Accessibility** — a TCC grant in the system TCC database, with the
+  code-signing requirement of the agent. Image creation disables SIP and
+  enables it again to write the grant.
 - **Package manager** — Homebrew (`/opt/homebrew/bin/brew`).
-- **Dev tools** — Xcode Command Line Tools (`swift`, `clang`, `git`, `make`).
-- **No SSH at runtime** — Remote Login is used during golden creation only
-  and turned off (`systemsetup -f -setremotelogin off`) before the final
-  shutdown; clones communicate via the agent on port 8648.
-- **Session restore disabled** — apps don't reopen old windows.
-- **SIP enabled** — standard security posture after image creation.
+- **Developer tools** — Xcode Command Line Tools (`swift`, `clang`, `git`, `make`).
+- **No SSH at run time** — golden creation uses Remote Login. It disables
+  Remote Login (`systemsetup -f -setremotelogin off`) before the final
+  shutdown. Clones communicate through the agent on port 8648.
+- **Session restore disabled** — apps do not open their old windows again.
+- **SIP enabled** — the standard security state after image creation.
 
 ## Linux (`testanyware-golden-linux-24.04`)
 
-- **Ubuntu 24.04 Desktop** (ARM64, via Cirrus Labs vanilla image +
+- **Ubuntu 24.04 Desktop** (ARM64, from the Cirrus Labs vanilla image and
   `ubuntu-desktop-minimal`).
-- **Agent autostart** — systemd user service
+- **Agent autostart** — a systemd user service
   (`testanyware-agent.service`).
-- **Accessibility** — AT-SPI2 enabled, `python3-pyatspi` for bindings,
-  `xdotool` for window management fallback.
+- **Accessibility** — AT-SPI2 enabled, `python3-pyatspi` for the bindings,
+  and `xdotool` as the fallback for window management.
 - **Package manager** — apt.
-- **No SSH at runtime** — `openssh-server` is used during golden creation
-  only and disabled + masked (`systemctl disable ssh && systemctl mask
-  ssh`) immediately before the final shutdown; clones communicate via the
-  agent on port 8648.
-- **Silent boot** — GRUB hidden, Plymouth splash, no text-mode console
-  output.
+- **No SSH at run time** — golden creation uses `openssh-server`. It disables
+  and masks the service (`systemctl disable ssh && systemctl mask ssh`)
+  immediately before the final shutdown. Clones communicate through the agent
+  on port 8648.
+- **Silent boot** — GRUB hidden, a Plymouth splash, and no console output in
+  text mode.
 - **Screen lock and blanking disabled** — no interruptions during tests.
-- **NetworkManager** — configured via netplan (replaces
-  systemd-networkd from base image).
+- **NetworkManager** — configured through netplan. It replaces the
+  systemd-networkd of the base image.
 
 ## Windows (`testanyware-golden-windows-11`)
 
-- **Windows 11 Pro** (ARM64, installed from Microsoft evaluation ISO via
-  QEMU).
-- **Agent autostart** — Task Scheduler logon task (`TestAnywareAgent`).
-- **Password never expires** — `admin` (auto-logon) is set to never expire, so a
-  golden older than Windows' 42-day password age still logs in and starts the
-  agent; golden creation verifies it with `net user admin`.
-- **Accessibility** — UI Automation via FlaUI (built into Windows).
+- **Windows 11 Pro** (ARM64, installed under QEMU from a Microsoft evaluation
+  ISO).
+- **Agent autostart** — a Task Scheduler logon task (`TestAnywareAgent`).
+- **Password never expires** — the password of `admin` (auto-logon) never
+  expires. So a golden older than the Windows password age of 42 days still
+  logs in and starts the agent. Golden creation verifies this with
+  `net user admin`.
+- **Accessibility** — UI Automation through FlaUI (built into Windows).
 - **Package manager** — Chocolatey.
-- **No SSH** — agent binary installed from autounattend media; all
-  communication via agent HTTP.
-- **First-logon animation disabled** — clones boot straight to desktop
-  without OOBE.
-- **UEFI + TPM 2.0** — standard Windows 11 secure boot via swtpm. Where the
-  host's QEMU has no `tpm-tis-device` the golden is built, and its clones
-  start, without a TPM; `swtpm` missing on a host that could supply one is
-  an error (`SWTPM_MISSING`), not a silent omission.
-- **VirtIO networking** — virtio-net-pci driver installed during setup.
+- **No SSH** — the agent binary comes from the autounattend media. All
+  communication goes through the HTTP service of the agent.
+- **First-logon animation disabled** — clones boot directly to the desktop,
+  with no OOBE.
+- **UEFI and TPM 2.0** — standard Windows 11 secure boot through swtpm. When
+  the QEMU of the host has no `tpm-tis-device`, golden creation builds the
+  golden without a TPM, and its clones start without one. When `swtpm` is
+  missing on a host that could supply a TPM, the result is the error
+  `SWTPM_MISSING`, not a silent omission.
+- **VirtIO networking** — setup installs the virtio-net-pci driver.
 
 ## Creating the golden images
 
@@ -85,40 +88,41 @@ testanyware vm create-golden --platform linux
 ```
 
 For Windows, first download the Windows 11 ARM64 evaluation ISO from
-[Microsoft](https://www.microsoft.com/en-us/software-download/windows11arm64),
-then pass it to the in-process command (which builds
-`testanyware-golden-windows-11` via QEMU+swtpm, provisioning over the
-in-VM agent — no SSH):
+[Microsoft](https://www.microsoft.com/en-us/software-download/windows11arm64).
+Then pass it to the in-process command. The command builds
+`testanyware-golden-windows-11` with QEMU and swtpm, and it provisions over the
+in-VM agent, with no SSH:
 
 ```bash
 testanyware vm create-golden --platform windows --iso ~/Downloads/Win11_ARM64.iso
 ```
 
-The ISO is cached after first use — subsequent runs don't need `--iso`.
-The Windows installation is fully automated via `autounattend.xml`
-(typical time: 20-40 minutes).
+The command caches the ISO at its first use, so later runs do not need `--iso`.
+`autounattend.xml` automates the whole Windows installation. It typically takes
+20 to 40 minutes.
 
 ## Rebuilding after an agent change
 
-The golden images bake the in-VM agent, so a **breaking agent-protocol
-change requires rebuilding every golden** — a clone of a stale golden runs
-the old agent and will fail against a matching new host CLI (there is no
-version negotiation; see ADR-0001, the streaming `/upload`/`/download`
-cutover).
+Each golden image holds the in-VM agent. So a **breaking change to the agent
+protocol needs a rebuild of every golden**. A clone of a stale golden runs the
+old agent, and it fails against a matching new host CLI. There is no version
+negotiation (see ADR-0001, the change of `/upload` and `/download` to streams).
 
-The create scripts need no edits for this: each bakes the agent from
-*current* source — the macOS script SCPs the built `testanyware-agent`
-binary (point it at a contributor build with
-`TESTANYWARE_AGENT_BIN_OVERRIDE=…`), and the Linux script copies the
-`agents/linux` Python source. So a rebuild is just: build the new agents,
-then re-run the create script for each platform. The Windows golden must be
-rebuilt on a Windows host (the create flow needs the `net9.0-windows` +
-FlaUI agent, which cannot run on Apple Silicon).
+The create scripts need no change for this, because each one takes the agent
+from the *current* source. The macOS script copies the built
+`testanyware-agent` binary over SCP. Point it at a contributor build with
+`TESTANYWARE_AGENT_BIN_OVERRIDE=…`. The Linux script copies the Python source
+in `agents/linux`. So, to rebuild, build the new agents, and then run the create
+script of each platform again.
+
+The Windows golden needs a rebuild on a Windows
+host. The create flow needs the `net9.0-windows` and FlaUI agent, which cannot
+run on Apple Silicon.
 
 ## Where they live
 
-- **macOS / Linux goldens:** tart-managed, under `~/.tart/vms/`.
+- **macOS and Linux goldens:** tart manages them, under `~/.tart/vms/`.
 - **Windows goldens:** `${XDG_DATA_HOME:-~/.local/share}/testanyware/golden/`.
 
-Use `testanyware vm list` to see all goldens (tart + QEMU) and their
-running clones. Use `testanyware vm delete <name>` to remove one.
+`testanyware vm list` shows all goldens (tart and QEMU) and their running
+clones. `testanyware vm delete <name>` removes one.

@@ -4,9 +4,10 @@ title: Provisioner
 
 # Component: `provisioner/` — VM lifecycle scripts + autounattend
 
-Bash scripts and autounattend XML that build and run TestAnyware's
-golden images. Scripts are thin wrappers around `testanyware vm ...`
-where possible — the CLI is the source of truth for lifecycle logic.
+`provisioner/` holds the Bash scripts and the autounattend XML that build and run
+the golden images of TestAnyware. Where possible, a script is a thin wrapper
+around `testanyware vm ...`. The CLI is the source of truth for the lifecycle
+logic.
 
 ## Layout
 
@@ -25,16 +26,16 @@ provisioner/
 
 | File | Role |
 |------|------|
-| `scripts/vm-start.sh`, `vm-stop.sh`, `vm-list.sh`, `vm-delete.sh` | Thin `exec testanyware vm …` wrappers. Retained so existing callers (docs, CI, tests) keep working; the CLI is canonical. |
-| `scripts/_testanyware-paths.sh` | Shell-side mirror of `VMPaths.swift`. Must stay in sync. |
-| `testanyware vm create-golden --platform macos` | Builds `testanyware-golden-macos-27`. In-process CLI command (no script): installs macOS 27 once from Apple's IPSW into `testanyware-base-macos-27` (`--version` takes a macOS major of 27 or later); disables/re-enables SIP to install the TCC grant for the agent. |
-| `testanyware vm create-golden --platform linux` | Builds `testanyware-golden-linux-24.04`. In-process CLI command (no script): provisions Ubuntu 24.04 via tart, installs `ubuntu-desktop-minimal`, AT-SPI2, the agent, and a systemd user service over 2 normal boots. |
-| `testanyware vm create-golden --platform windows` | Builds `testanyware-golden-windows-11` under `$XDG_DATA_HOME/testanyware/golden/`. In-process CLI command (no script): orchestrates QEMU + swtpm through a Windows 11 ARM64 Microsoft evaluation ISO, provisioning over the in-VM agent (no SSH), leaving `admin`'s password never expiring (checked in the guest with `net user admin`); requires `--iso <path>` on first run. |
-| `autounattend/` | Windows unattended-install XML + payload. The agent's `publish` dir and a Task Scheduler xml are injected here. |
+| `scripts/vm-start.sh`, `vm-stop.sh`, `vm-list.sh`, `vm-delete.sh` | Thin `exec testanyware vm …` wrappers. They stay, so that the existing callers (docs, CI, tests) keep working. The CLI is canonical. |
+| `scripts/_testanyware-paths.sh` | The shell copy of `VMPaths.swift`. Keep the two in step. |
+| `testanyware vm create-golden --platform macos` | Builds `testanyware-golden-macos-27`. It is an in-process CLI command, with no script. It installs macOS 27 once from Apple's IPSW into `testanyware-base-macos-27`. `--version` takes a macOS major of 27 or later. The command disables SIP and enables it again to install the TCC grant of the agent. |
+| `testanyware vm create-golden --platform linux` | Builds `testanyware-golden-linux-24.04`. It is an in-process CLI command, with no script. It provisions Ubuntu 24.04 through tart. Over 2 normal boots, it installs `ubuntu-desktop-minimal`, AT-SPI2, the agent and a systemd user service. |
+| `testanyware vm create-golden --platform windows` | Builds `testanyware-golden-windows-11` under `$XDG_DATA_HOME/testanyware/golden/`. It is an in-process CLI command, with no script. It drives QEMU and swtpm through a Windows 11 ARM64 Microsoft evaluation ISO, and it provisions over the in-VM agent, with no SSH. The password of `admin` never expires, and the command checks this in the guest with `net user admin`. The first run needs `--iso <path>`. |
+| `autounattend/` | The Windows unattended-install XML and payload. The command injects the `publish` directory of the agent and a Task Scheduler XML file here. |
 
 ## Build / test
 
-These scripts are not "built" — they run directly. Smoke-testing them:
+These scripts need no build. They run directly. To smoke-test them:
 
 ```bash
 # Sanity — prints a VM id, then removes it
@@ -45,7 +46,7 @@ vmid=$(./provisioner/scripts/vm-start.sh)
 ./provisioner/scripts/vm-list.sh
 ```
 
-Golden-image creation is long and destructive; don't run it casually.
+Golden-image creation is long and destructive. Do not run it casually.
 
 ```bash
 testanyware vm create-golden --platform macos
@@ -55,20 +56,20 @@ testanyware vm create-golden --platform windows --iso ~/Downloads/Win11_ARM64.is
 
 ## Common pitfalls
 
-- **SIP cycle during macOS golden build.** `testanyware vm create-golden
-  --platform macos` reboots the VM into Recovery to disable SIP, writes a
-  TCC grant for the agent tied to its code-signing requirement, then
-  re-enables SIP. If this step is interrupted, the resulting image may have
-  SIP disabled — rebuild from scratch.
-- **Windows ISO cache.** Lives at
-  `${XDG_DATA_HOME:-~/.local/share}/testanyware/cache/`. First
-  invocation of `testanyware vm create-golden --platform windows`
-  requires `--iso <path>`; subsequent invocations reuse the cache.
-- **Autounattend payload size.** The autounattend media holds the
-  agent's entire `publish/` dir plus VirtIO drivers. If you add
-  large binaries, the ISO may exceed the media-drive size QEMU is
-  configured to present to the installer.
-- **Shell helpers mirror the CLI's path logic.** `_testanyware-paths.sh`
-  must match `cli-rs/crates/testanyware-vm/src/paths.rs` because the
-  golden-image scripts run before the host CLI is on `PATH` and still need
-  to know where clones and caches live.
+- **The SIP cycle of the macOS golden build.** `testanyware vm create-golden
+  --platform macos` reboots the VM into Recovery to disable SIP. It writes a
+  TCC grant for the agent, tied to the code-signing requirement of the agent.
+  Then it enables SIP again. If an interruption stops this step, the image can
+  have SIP disabled. Rebuild it from the start.
+- **The Windows ISO cache.** It is at
+  `${XDG_DATA_HOME:-~/.local/share}/testanyware/cache/`. The first run of
+  `testanyware vm create-golden --platform windows` needs `--iso <path>`.
+  Later runs use the cache.
+- **The size of the autounattend payload.** The autounattend media holds the
+  whole `publish/` directory of the agent and the VirtIO drivers. If you add
+  large binaries, the ISO can become larger than the media drive that QEMU
+  presents to the installer.
+- **The shell helpers copy the path logic of the CLI.** `_testanyware-paths.sh`
+  must match `cli-rs/crates/testanyware-vm/src/paths.rs`. The golden-image
+  scripts run before the host CLI is on `PATH`, and they still need to know
+  where clones and caches are.
