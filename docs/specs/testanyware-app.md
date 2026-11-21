@@ -619,9 +619,11 @@ golden creation names the VMs that it boots, and each name must be a plain VM id
 A body that does not read, an empty list and a name that is not a plain VM id
 give `USAGE_ERROR` (400). The response is `200` with `application/x-ndjson`, with
 the events `progress`, `admitted` and `error`. After `admitted` the app sends
-nothing more. The open response is the hold: the app keeps the slot until the
-client closes the connection, and a crash of the client closes it too. The queue,
-the count and the events are in `docs/specs/admission-queue.md`.
+nothing more.
+
+The open response is the hold. The app keeps the slot until the client closes
+the connection, and a crash of the client closes it too. The queue, the count and
+the events are in `docs/specs/admission-queue.md`.
 
 `POST /v1/vms/{id}/stop` has no body. The app stops the VM as `vm stop` does
 today. It signals the processes that the meta records, removes the clone, and
@@ -766,9 +768,9 @@ The rules of adoption:
   Its `not_adopted` list names each VM with a `reason` and a `detail`. The reasons are
   `process_gone`, `start_time_differs`, `boot_session_differs`, `no_boot_session` and
   `meta_unreadable`. Its `unfinished_starts` list names each start record that the app
-  found, with `removed` and a `detail` (`docs/specs/admission-queue.md`). When tart did
-  not answer at the start of the app, the app decides again for the record after an
-  observation whose `tart list` answered, and the new result replaces the first one for
+  found, with `removed` and a `detail` (`docs/specs/admission-queue.md`). Sometimes tart did
+  not answer at the start of the app. Then the app decides again for the record after an
+  observation whose `tart list` answered. The new result replaces the first one for
   that VM. A client that needs the results asks again until `finished` is true.
 
 An older QEMU guest stops through its control sockets, and never by a signal:
@@ -1505,9 +1507,11 @@ The human agreed these three seams in `plan-k1`.
   reset on each connection.
 
   It also covers the delivery of input. A synthetic RFB guest reads one message
-  in each 100 ms, as tart reads late, and it drops all that it has not read when
-  a reset has reached its connection by then. The real Host CLI runs `input
-  click` and `input type` through the real app against it. When the command
+  in each 100 ms, as tart reads late. It drops all that it has not read when a
+  reset has reached its connection by then.
+
+  The real Host CLI runs `input
+  click` and `input type` through the real app against that guest. When the command
   returns, the guest must hold every event. The tests are
   `a_click_has_reached_a_guest_that_reads_late_when_the_command_returns` and
   `typed_text_has_reached_a_guest_that_reads_late_when_the_command_returns` in
