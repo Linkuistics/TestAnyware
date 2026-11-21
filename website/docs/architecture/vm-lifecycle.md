@@ -31,11 +31,11 @@ Every running VM has exactly one JSON spec file at
 A sibling `<id>.meta.json` holds PID, backend, clone dir, and viewer
 window id — internal only, not for client consumption.
 
-The meta also records the identity of each process that it names: the `pid`, the
-keeper and, for a QEMU guest with a TPM, the `swtpm_pid`. The identity of a process
-is its start time and the UUID of the boot session (`identity`, `keeper_identity`
-and `swtpm_identity`). A recycled pid has another start time, so a reader signals a
-recorded pid only when the identity matches. The meta of a QEMU guest also records
+The meta also records the identity of each process that it names: the `pid` and,
+for a QEMU guest with a TPM, the `swtpm_pid`. The identity of a process is its start
+time and the UUID of the boot session (`identity` and `swtpm_identity`). A recycled
+pid has another start time, so a reader signals a recorded pid only when the
+identity matches. The meta of a QEMU guest also records
 its `session_dir`, which holds the monitor socket and the swtpm control socket.
 A meta written before these fields exist has none of them, and a reader still
 accepts it.
@@ -48,6 +48,7 @@ Defaults follow the XDG Base Directory spec.
 | Content | Path | Purpose |
 |---------|------|---------|
 | Running-VM specs | `${XDG_STATE_HOME:-~/.local/state}/testanyware/vms/<id>.json` and `<id>.meta.json` | Ephemeral. `vm start` creates them and `vm stop` removes them |
+| Start records | `${XDG_STATE_HOME:-~/.local/state}/testanyware/vms/<id>.start-record` | Ephemeral. The TestAnyware app writes one before the clone of each start and removes it when the start ends. After a crash it stays until the app decides for it (`docs/specs/admission-queue.md`) |
 | QEMU golden images | `${XDG_DATA_HOME:-~/.local/share}/testanyware/golden/` | Persistent. `testanyware vm create-golden --platform windows` produces them |
 | QEMU clone working dirs | `${XDG_DATA_HOME:-~/.local/share}/testanyware/clones/<id>/` | Ephemeral per-clone disk. `vm stop` removes it |
 | Windows installer ISO cache | `${XDG_DATA_HOME:-~/.local/share}/testanyware/cache/` | Persistent. Golden-image rebuilds reuse it |
@@ -61,8 +62,8 @@ queries both backends and presents a unified view.
 1. `testanyware vm start` picks the backend based on `--platform`.
 2. **tart path:** `tart clone <golden> <clone-id>` → `tart run` in the
    background → discover VNC URL (`tart vnc <clone-id>`) → parse host,
-   port, and dynamically generated password from the URL. Then spawn the
-   VNC keeper (see [VNC keeper](#vnc-keeper)).
+   port, and dynamically generated password from the URL. No other process
+   starts beside `tart run` (see [VNC connections](#vnc-connections)).
 3. **QEMU path:** copy `${XDG_DATA_HOME}/testanyware/golden/<name>/` into
    a fresh `${XDG_DATA_HOME}/testanyware/clones/<id>/` → spawn
    `qemu-system-aarch64` in the background → discover VNC via the QEMU
@@ -99,13 +100,12 @@ queries both backends and presents a unified view.
 1. Look up `<id>.meta.json` for the backend, clone dir, and viewer
    window id.
 2. Compare each recorded process with the live one. The meta records the
-   pid, the start time and the boot session of the VM, the keeper and swtpm.
+   pid, the start time and the boot session of the VM and of swtpm.
    A process receives a signal only on a full match. When the pid of the VM
    names another process, the stop signals nothing and removes nothing. It
    fails with `VM_STOP_FAILED`.
-3. Send the backend-specific stop. For tart, run `tart stop <clone-id>`
-   then `tart delete <clone-id>`, then signal the VNC keeper if it still
-   runs and matches. For QEMU, signal the matching QEMU and swtpm.
+3. Send the backend-specific stop. For tart, run `tart stop <clone-id>`,
+   then `tart delete <clone-id>`. For QEMU, signal the matching QEMU and swtpm.
 4. Close the viewer window if one was opened (AppleScript).
 5. Remove the clone dir (QEMU) and both JSON files.
 
@@ -122,27 +122,13 @@ process is gone as stopped. It reports a VM whose pid names another process as
 not adopted, and it signals nothing. `GET /v1/status` and the status item list
 each VM that the app did not adopt, with the reason.
 
-## VNC keeper
+## VNC connections
 
-On a macOS 27 host, Apple's VNC server aborts tart when a client connects 60
-seconds or more after the last client left. Every `screen` and `input` command
-opens its own VNC connection, so a command after a long pause can stop the guest.
-ADR-0018 decides the remedy.
-
-Each tart-backed `vm start` spawns a VNC keeper right after tart prints its VNC
-URL. The keeper is the `testanyware` binary run as the hidden command
-`_vnc-keeper --id <id> --host <host> --port <port>`. It runs detached, in its own
-session. It holds one TCP connection to the VNC port, sends nothing, and reads
-and discards what the server sends. The meta file records its pid as
-`keeper_pid`. Its log is `<id>.keeper.log` in the same directory as the spec file.
-
-The keeper stops itself. When its connection ends, it waits about one second and
-connects again. When the port refuses, tart is gone, and the keeper exits. It also
-exits when five connections in a row end within five seconds of opening.
-`vm stop` signals the recorded pid as a backstop, only if the command line of that
-pid still names `_vnc-keeper` and this id. Nothing restarts a keeper that dies.
-
-QEMU guests, golden creation and `vm start --dry-run` start no keeper.
+Every `screen` and `input` command opens its own VNC connection (ADR-0004). No
+process holds a connection to a tart guest between two commands. A host that meets
+the host requirement (ADR-0018) accepts a new connection after any idle gap. macOS
+27.0.1 aborted tart on such a connection, and that host is below the requirement.
+`task vm:tart-vnc-idle-repro` checks a host for that fault.
 
 ## Golden images
 

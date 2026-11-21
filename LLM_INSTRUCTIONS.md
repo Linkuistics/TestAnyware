@@ -293,7 +293,7 @@ testanyware vm slots --json
 - **Don't poll `agent windows` in a tight loop.** Use `agent wait`, which blocks until the element is ready.
 - **Don't mix `--vm` with `--vnc`/`--agent`.** The resolution chain takes the first match and silently ignores the rest.
 - **Sleep after input.** VMs need time to settle: `sleep 1` after keyboard/mouse, `sleep 5` after starting an app.
-- **On a macOS 27 host, a tart guest (macOS or Linux) dies if a `screen` or `input` command runs 60 seconds after the last one.** Tart's VNC server aborts on a reconnect after an idle gap. `vm start` prevents this. It starts a VNC keeper (`testanyware _vnc-keeper`) that holds one silent connection for the guest's life, so do not kill it. A tart guest that you started with `tart run` has no keeper. For that guest, keep one VNC connection open yourself (`tail -f /dev/null | nc <vnc-host> <vnc-port>`), or keep commands less than 60 seconds apart. See `docs/user/troubleshooting.md`.
+- **Run TestAnyware on a macOS host with the latest release of macOS 27 and the latest release of tart.** A guest is outside this requirement. On an older host, such as macOS 27.0.1, a tart guest (macOS or Linux) can die. This happens when a `screen` or `input` command runs 60 seconds or more after the last one. TestAnyware has no workaround for that fault. Update macOS and tart instead. In a TestAnyware checkout, `task vm:tart-vnc-idle-repro` checks the host. See `docs/user/troubleshooting.md`.
 
 ## Where to read more
 

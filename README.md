@@ -211,7 +211,7 @@ to avoid duplicate-module collisions across the workspace members.
 | Linux agent | Python 3.12+ | AT-SPI2 bindings, http.server minimal footprint | In-VM only |
 | Windows agent | C# 9 | UIA/FlaUI, ASP.NET Core, ships as standalone .NET 9 app | In-VM only |
 | Vision pipeline | Python 3.11+ | Pillow, pytest, uv workspace | Host-side analysis |
-| Provisioner | Bash + autounattend XML | VM lifecycle, golden-image creation | macOS 14+ host only |
+| Provisioner | Bash + autounattend XML | VM lifecycle, golden-image creation | macOS host only |
 
 **Notable packages:**
 
@@ -507,15 +507,19 @@ All images share these properties:
 
 | Requirement | Purpose | Install |
 |-------------|---------|---------|
-| macOS 14+ | Host OS | — |
+| The latest release of macOS 27, on Apple Silicon | Host OS | System Settings → General → Software Update |
 | Swift 6.0+ | Build CLI and macOS agent | Included with Xcode 16+, or `xcode-select --install` |
-| [tart](https://tart.run) | macOS and Linux VMs | `brew install cirruslabs/cli/tart` |
+| The latest release of [tart](https://tart.run) | macOS and Linux VMs | `brew install cirruslabs/cli/tart` |
 | [QEMU](https://www.qemu.org/) | Windows VMs | `brew install qemu` |
 | [swtpm](https://github.com/stefanberger/swtpm) | TPM 2.0 emulation for Windows 11 | `brew install swtpm` |
 | .NET 9+ SDK | Build Windows agent (cross-compiled to `win-arm64`) | `brew install dotnet` |
 | Python 3.12+ | Linux agent (ships with Ubuntu desktop) | Not needed on host |
 | Python 3.11+ and `uv` | Vision pipeline on the host | `brew install uv` |
 | SSH key | macOS/Linux golden image creation | `ssh-keygen -t ed25519` (if `~/.ssh/id_ed25519.pub` doesn't exist) |
+
+The host requirement covers the macOS and tart releases of the host only. A
+guest is outside this requirement, and it runs the release that its golden
+image holds. Nothing checks the host versions at run time (ADR-0018).
 
 ### First-run permission
 
@@ -559,13 +563,11 @@ the grant valid across rebuilds.
 Known issues, VM quirks, platform-specific workarounds, and CLI edge
 cases now live in [`docs/user/troubleshooting.md`](docs/user/troubleshooting.md).
 
-On a macOS 27 host, the last VNC client can leave a tart guest (macOS or Linux).
-If a `screen` or `input` command then runs 60 seconds or more later, the guest
-stops. `vm start` prevents this. It starts a VNC keeper, a detached process that
-holds one silent connection to the guest for as long as the guest runs. A tart
-guest that you started with `tart run` has no keeper, so keep one VNC
-connection open yourself. The troubleshooting entry "A tart guest dies when
-`screen` or `input` runs after 60 idle seconds" has the details.
+On a host below the host requirement, such as macOS 27.0.1, a tart guest
+(macOS or Linux) can stop. This happens when a `screen` or `input` command runs
+60 seconds or more after the last VNC client left. To fix it, update macOS and
+tart to their latest releases. The troubleshooting entry "A tart guest dies
+when `screen` or `input` runs after 60 idle seconds" has the details.
 
 ## Key Directories
 

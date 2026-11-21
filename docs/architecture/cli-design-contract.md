@@ -386,7 +386,7 @@ version bump.
 >   Local Network. The direct path of a Linux or Windows host keeps its old text.
 > - SIGINT or SIGTERM of a waiting `vm start` ends the Host CLI as the signal
 >   would. The app sees the closed connection, cancels the start and removes the
->   VM, its keeper and its sidecars. The removal ends a moment after the Host CLI
+>   VM and its sidecars. The removal ends a moment after the Host CLI
 >   exits, not before. This holds for every start, not for `--wait` alone.
 > - A cancelled start removes the VM even under `--keep-on-failure`: nobody is
 >   left to reclaim a kept VM.

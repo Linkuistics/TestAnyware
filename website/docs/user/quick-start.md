@@ -8,9 +8,12 @@ Get from a fresh clone to your first screenshot in about 15 minutes.
 
 ## Prerequisites
 
-- macOS 14+ on Apple Silicon
+- The latest release of macOS 27, on Apple Silicon
 - Xcode 16+ (`swift --version` should report 6.0+)
-- `tart` — `brew install cirruslabs/cli/tart`
+- The latest release of `tart` — `brew install cirruslabs/cli/tart`
+
+The requirement for macOS and tart covers the host only. A guest runs the
+release that its golden image holds.
 
 That's enough to run macOS VMs. Linux VMs need the same tools. Windows
 VMs also need `qemu`, `swtpm`, and .NET 9. See the

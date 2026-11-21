@@ -69,60 +69,40 @@ For pixel-perfect targeting against unfamiliar windows, capture a
 full-screen `testanyware screenshot`. Read the screen-absolute
 coordinates off it. Pass those coordinates directly, without `--window`.
 
-## A tart guest dies when `screen` or `input` runs after 60 idle seconds (macOS 27 host)
+## A tart guest dies when `screen` or `input` runs after 60 idle seconds (host below the requirement)
 
-On a host running macOS 27, a `testanyware screen` or `input` command can stop a
-tart guest (macOS or Linux). The symptom is `I/O error: early eof`. The next command reports
-`Connection refused`, and `tart list` shows the clone as `stopped`.
+On a macOS host below the host requirement, a `testanyware screen` or `input` command
+can stop a tart guest (macOS or Linux). The symptom is `I/O error: early eof`. The next
+command reports `Connection refused`, and `tart list` shows the clone as `stopped`.
 
-Every `screen` and `input` command opens a new VNC connection to `tart run`. The
-host's VNC server (Apple's `_VZVNCServer`) aborts the tart process if a client
-connects after the last client left 60 seconds or more earlier. The guest stops
-with it. Tart 2.40.1 on macOS 27.0.1 shows this.
+Every `screen` and `input` command opens a new VNC connection to `tart run`. On macOS
+27.0.1, the host's VNC server (Apple's `_VZVNCServer`) aborts the tart process in two
+cases. In the first, a client connects 60 seconds or more after the last client left.
+In the second, a client closes its connection with unread data pending (an RST), and the
+next client connects. The second case kills tart even after a 5-second gap. The guest
+stops with tart.
 
 The guest does not matter. A macOS guest and a Linux guest under tart fail the same way.
 Windows guests run under QEMU, which has its own VNC server, and are not affected.
 A first connection after boot works.
 
-`vm start` prevents the fault for each tart guest that it starts. It starts a VNC
-keeper, a detached process that holds one silent connection to the guest's VNC
-port for as long as tart runs. The keeper sends nothing. It ends itself when tart
-stops, and `vm stop` signals it as a backstop. Its log is
-`${XDG_STATE_HOME:-~/.local/state}/testanyware/vms/<id>.keeper.log`.
-To see that it runs, use `pgrep -f _vnc-keeper`.
+macOS 27.2.1 removed both faults. On a macOS host, TestAnyware requires the latest
+release of macOS 27 and the latest release of tart. It carries no workaround for this
+fault. Nobody tested a release between 27.0.1 and 27.2.1.
 
-You can still meet the fault in two cases:
+To fix the fault, update the host:
 
-- **You started the guest without `vm start`.** For example, you ran `tart run`
-  yourself. That guest has no keeper.
-- **The keeper died while tart ran.** Nothing restarts it. Read the keeper log to
-  see why it ended. If the keeper died more than 60 seconds ago, the next
-  connection of any kind can already stop the guest.
+1. Update macOS to the latest release of macOS 27, in System Settings → General →
+   Software Update.
+2. Update tart to its latest release with `brew upgrade cirruslabs/cli/tart`.
+3. Check the host with `task vm:tart-vnc-idle-repro` (about 2.5 minutes). It runs a bare
+   RFB client, so it shows the fault without TestAnyware. It passes on a host that
+   meets the requirement.
 
-In both cases, two things avoid the fault:
-
-- **Keep one VNC connection open for as long as the guest runs.** One open
-  connection is enough, even a bare TCP connection that sends nothing. With it
-  open, commands after any idle gap work. Run it in a spare terminal. Use the
-  address and port from `testanyware vm list`:
-
-  ```bash
-  tail -f /dev/null | nc 127.0.0.1 <vnc-port>
-  ```
-
-  Stop it with Ctrl-C after `vm stop`. If you stop it first, the 60-second rule applies again.
-- **Space commands less than 60 seconds apart.** Use this for short scripted runs.
-  An agent that waits on the guest between commands should use the first option.
-
-Check the host with `task vm:tart-vnc-idle-repro` (about 2.5 minutes). It runs a bare
-RFB client, so the fault shows without TestAnyware. `task vm:tart-vnc-idle-repro HOLD=1`
-shows that an open connection prevents it.
-
-A client that closes its connection with unread data pending (an RST) also kills
-tart, even after a 5-second gap. The TestAnyware client has not shown this.
 Full evidence and the draft report for Apple and Cirrus Labs are in
 [`docs/research/tart-vnc-reconnect-crash-macos-27.md`](../research/tart-vnc-reconnect-crash-macos-27.md).
-Observed 2026-10-18 to 2026-10-19.
+The fault showed on macOS 27.0.1 from 2026-10-18 to 2026-10-19. On 2026-11-21, macOS
+27.2.1 with tart 2.42.0 passed the same reproduction.
 
 ## VirtioFS shared folders can serve stale file content
 

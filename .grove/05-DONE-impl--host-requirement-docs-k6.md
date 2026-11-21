@@ -61,3 +61,37 @@ keeper and its manual workaround from the user, agent and architecture docs.
   and the removal of the keeper.
 - `testanyware llm-instructions` prints `LLM_INSTRUCTIONS.md`, so its change
   reaches agents with the release.
+
+## Decisions (running log)
+
+- 2026-11-22, conversion. Seven pages failed the controlled-English checker
+  before the edit. A preparatory change converted them without a change of
+  meaning. It also converted the amendment of 2026-10-20 in the CLI design
+  contract and removed its pending marker.
+- 2026-11-22, scope. The sweep found two pages that the context did not list.
+  `docs/architecture/overview.md` and its mirror drew the host as "macOS 14+".
+  The README component table said "macOS 14+ host only". Both now name no old
+  release.
+- 2026-11-22, mirror. The website lifecycle page lacked the "Start records"
+  row that an earlier leaf added to `docs/`. This change adds the row, so each
+  mirror equals its source apart from the title header.
+- 2026-11-22, troubleshooting. The entry names the symptom on a host below the
+  requirement, both faults of macOS 27.0.1, and three update steps. The
+  `HOLD=1` sentence went with the manual holder, because it showed only the
+  effect of a held connection.
+- 2026-11-22, lifecycle. A short "VNC connections" section replaces the keeper
+  section. It says that each command opens its own connection and that no
+  process holds one between commands.
+- 2026-11-22, sweep. A script enumerates each hit of `keeper`, the two holder
+  commands, `macOS 1[0-9]` and the names Sonoma, Sequoia and Ventura over the
+  scope, and classifies each hit. The research notes and ADR-0018 hold the
+  keeper hits. The other hits name refused guest tags, the QEMU flag
+  `-vnc 127.0.0.1` and a macOS 15.5 feature. On a scratch export of the parent
+  revision, the same script reports each class that this leaf removed. The
+  positive control finds the keeper in ADR-0018, and a mutated pattern makes it
+  read zero.
+- 2026-11-22, checks. Each changed page has no hard finding of the checker.
+  The two contract tests of `llm-instructions` passed.
+- 2026-11-22, review. This session cut no `review-impl` leaf. The change
+  rewrites docs to match code and decisions that earlier leaves settled, and
+  the sweep with its controls checks the claim.
