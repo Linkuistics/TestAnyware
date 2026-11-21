@@ -245,29 +245,21 @@ free_slot() {
 }
 
 record_processes() {
-  local meta pid keeper
+  local meta pid
   meta=$(meta_of "$GUEST")
   pid=$(jq -r .pid "$meta")
-  keeper=$(jq -r '.keeper_pid // empty' "$meta")
   alive "$pid" || fail "$GUEST: the tart process $pid does not run."
   printf '%s %s\n' "$pid" "$(started_at "$pid")" >"$state/guest.main"
-  if [[ -n "$keeper" ]]; then
-    alive "$keeper" || fail "$GUEST: the keeper $keeper does not run."
-    printf '%s %s\n' "$keeper" "$(started_at "$keeper")" >"$state/guest.keeper"
-  fi
 }
 
 same_processes() {
-  local file line pid start
-  for file in "$state/guest.main" "$state/guest.keeper"; do
-    [[ -f "$file" ]] || continue
-    # The line is "<pid> <start time>", and the start time holds spaces.
-    line=$(<"$file")
-    pid=${line%% *}
-    start=${line#* }
-    alive "$pid" || fail "$GUEST: process $pid ($(basename "$file")) ended during the upgrade."
-    [[ "$(started_at "$pid")" == "$start" ]] || fail "$GUEST: process $pid ($(basename "$file")) restarted."
-  done
+  local line pid start
+  # The line is "<pid> <start time>", and the start time holds spaces.
+  line=$(<"$state/guest.main")
+  pid=${line%% *}
+  start=${line#* }
+  alive "$pid" || fail "$GUEST: the tart process $pid ended during the upgrade."
+  [[ "$(started_at "$pid")" == "$start" ]] || fail "$GUEST: the tart process $pid restarted."
 }
 
 # denial <output>: does the output of a failed command show a Local Network denial?
@@ -391,7 +383,7 @@ ok "the app restarted: a new process"
 
 [[ "$(tart_state "$GUEST")" == running ]] || fail "after the upgrade, tart says $GUEST is $(tart_state "$GUEST")."
 same_processes
-ok "the guest ran through the upgrade: its tart process and keeper keep their pids and start times"
+ok "the guest ran through the upgrade: its tart process keeps its pid and start time"
 
 adopted=
 for _ in $(seq 1 $((max_adopt * 2))); do

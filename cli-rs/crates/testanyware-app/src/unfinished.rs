@@ -76,9 +76,6 @@ pub enum MetaRun {
 pub struct Facts {
     /// The recorded `tart run`. Only this process decides, because it is the VM.
     pub main: Recorded,
-    /// The recorded keeper. It ends only when its next connect fails (ADR-0018), so a keeper that
-    /// matches proves nothing about the VM.
-    pub keeper: Recorded,
     pub tart: TartState,
     pub meta: MetaRun,
 }
@@ -99,9 +96,8 @@ pub enum Row {
 /// What the app does to the VM.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VmAction {
-    /// Stop the recorded `tart run` and delete the VM. The keeper gets a signal only when it
-    /// matches too.
-    StopAndDelete { signal_keeper: bool },
+    /// Stop the recorded `tart run` and delete the VM.
+    StopAndDelete,
     /// Delete the VM by name, with no signal.
     DeleteByName,
     /// Keep the VM, and never stop it.
@@ -129,9 +125,7 @@ pub fn decide(facts: &Facts) -> Verdict {
     if facts.main == Recorded::Matches {
         return Verdict {
             row: Row::First,
-            vm: VmAction::StopAndDelete {
-                signal_keeper: facts.keeper == Recorded::Matches,
-            },
+            vm: VmAction::StopAndDelete,
             keep_sidecars: false,
             remove_record: true,
             removed: true,
@@ -168,9 +162,8 @@ pub fn decide(facts: &Facts) -> Verdict {
 
 /// The effects of a verdict on tart and on processes. A test records them.
 pub trait Effects {
-    /// Stop the `tart run` at `main`, delete the VM, and end the keeper at `keeper`. Returns
-    /// whether the VM is gone.
-    fn stop_and_delete(&self, id: &str, main: i32, keeper: Option<i32>) -> bool;
+    /// Stop the `tart run` at `main` and delete the VM. Returns whether the VM is gone.
+    fn stop_and_delete(&self, id: &str, main: i32) -> bool;
     /// Delete the VM by name, with no signal. Returns whether the VM is gone.
     fn delete_by_name(&self, id: &str) -> bool;
 }
@@ -189,9 +182,8 @@ impl SystemEffects {
 
 #[cfg(target_os = "macos")]
 impl Effects for SystemEffects {
-    fn stop_and_delete(&self, id: &str, main: i32, keeper: Option<i32>) -> bool {
+    fn stop_and_delete(&self, id: &str, main: i32) -> bool {
         testanyware_vm::tart::TartRunner::stop_in(&self.tools, id, main);
-        testanyware_vm::keeper::stop_keeper(id, keeper);
         !testanyware_vm::tart::vm_exists_in(&self.tools, id)
     }
 
@@ -207,7 +199,7 @@ impl Effects for SystemEffects {
 /// removes nothing there.
 #[cfg(not(target_os = "macos"))]
 impl Effects for SystemEffects {
-    fn stop_and_delete(&self, _id: &str, _main: i32, _keeper: Option<i32>) -> bool {
+    fn stop_and_delete(&self, _id: &str, _main: i32) -> bool {
         false
     }
 
@@ -298,7 +290,6 @@ fn facts(
     };
     Facts {
         main: check(&record.main),
-        keeper: check(&record.keeper),
         tart,
         meta: meta_run(paths, &record.id, probe),
     }
@@ -338,12 +329,9 @@ fn settle_tart(
     let verdict = decide(&facts);
 
     let vm_gone = match verdict.vm {
-        VmAction::StopAndDelete { signal_keeper } => {
+        VmAction::StopAndDelete => {
             let main = record.main.as_ref().map_or(0, |p| p.pid);
-            let keeper = signal_keeper
-                .then(|| record.keeper.as_ref().map(|p| p.pid))
-                .flatten();
-            Some(effects.stop_and_delete(&id, main, keeper))
+            Some(effects.stop_and_delete(&id, main))
         }
         VmAction::DeleteByName => Some(effects.delete_by_name(&id)),
         VmAction::Keep => None,
@@ -668,13 +656,8 @@ mod tests {
     use std::cell::RefCell;
     use testanyware_vm::identity::ProcessIdentity;
 
-    fn facts(main: Recorded, keeper: Recorded, tart: TartState, meta: MetaRun) -> Facts {
-        Facts {
-            main,
-            keeper,
-            tart,
-            meta,
-        }
+    fn facts(main: Recorded, tart: TartState, meta: MetaRun) -> Facts {
+        Facts { main, tart, meta }
     }
 
     const METAS: [MetaRun; 5] = [
@@ -694,69 +677,17 @@ mod tests {
     fn the_first_row_holds_for_a_matching_tart_run_whatever_tart_and_the_meta_say() {
         for tart in STATES {
             for meta in METAS {
-                let verdict = decide(&facts(Recorded::Matches, Recorded::NotProven, tart, meta));
+                let verdict = decide(&facts(Recorded::Matches, tart, meta));
                 assert_eq!(verdict.row, Row::First, "{tart:?} {meta:?}");
-                assert_eq!(
-                    verdict.vm,
-                    VmAction::StopAndDelete {
-                        signal_keeper: false
-                    }
-                );
+                assert_eq!(verdict.vm, VmAction::StopAndDelete);
                 assert!(!verdict.keep_sidecars && verdict.remove_record && verdict.removed);
             }
         }
     }
 
     #[test]
-    fn the_first_row_signals_a_keeper_only_when_the_keeper_matches_too() {
-        let verdict = decide(&facts(
-            Recorded::Matches,
-            Recorded::Matches,
-            TartState::Running,
-            MetaRun::NoMeta,
-        ));
-        assert_eq!(
-            verdict.vm,
-            VmAction::StopAndDelete {
-                signal_keeper: true
-            }
-        );
-    }
-
-    #[test]
-    fn a_keeper_that_matches_while_its_tart_run_does_not_proves_nothing_about_the_vm() {
-        // The keeper ends only when its next connect fails, so it can outlive a `tart run`. In
-        // each state the VM gets no signal and no stop, and the keeper none either.
-        for tart in STATES {
-            let verdict = decide(&facts(
-                Recorded::NotProven,
-                Recorded::Matches,
-                tart,
-                MetaRun::NoMeta,
-            ));
-            assert_ne!(verdict.row, Row::First, "{tart:?}");
-            assert!(
-                !matches!(verdict.vm, VmAction::StopAndDelete { .. }),
-                "{tart:?}: {verdict:?}"
-            );
-        }
-        let verdict = decide(&facts(
-            Recorded::NotProven,
-            Recorded::Matches,
-            TartState::NotRunning,
-            MetaRun::NoMeta,
-        ));
-        assert_eq!(
-            verdict.vm,
-            VmAction::DeleteByName,
-            "no signal to the keeper"
-        );
-    }
-
-    #[test]
     fn the_second_row_deletes_by_name_when_tart_reports_no_running_vm() {
         let verdict = decide(&facts(
-            Recorded::NotProven,
             Recorded::NotProven,
             TartState::NotRunning,
             MetaRun::NoMeta,
@@ -776,7 +707,6 @@ mod tests {
         ] {
             let verdict = decide(&facts(
                 Recorded::NotProven,
-                Recorded::NotProven,
                 TartState::Running,
                 meta,
             ));
@@ -795,7 +725,6 @@ mod tests {
     fn the_third_row_keeps_the_meta_of_an_earlier_start_whose_tart_run_matches() {
         let verdict = decide(&facts(
             Recorded::NotProven,
-            Recorded::NotProven,
             TartState::Running,
             MetaRun::Matches,
         ));
@@ -808,7 +737,6 @@ mod tests {
     fn a_meta_that_proves_its_tart_run_stops_the_second_row_from_deleting_that_vm() {
         let verdict = decide(&facts(
             Recorded::NotProven,
-            Recorded::NotProven,
             TartState::NotRunning,
             MetaRun::Matches,
         ));
@@ -820,7 +748,6 @@ mod tests {
     fn the_fourth_row_keeps_the_vm_and_the_record_in_each_outcome_of_the_check_of_the_meta() {
         for meta in METAS {
             let verdict = decide(&facts(
-                Recorded::NotProven,
                 Recorded::NotProven,
                 TartState::Unanswered,
                 meta,
@@ -839,7 +766,6 @@ mod tests {
     fn an_older_meta_beside_a_running_vm_goes_in_the_third_and_the_fourth_row() {
         for tart in [TartState::Running, TartState::Unanswered] {
             let verdict = decide(&facts(
-                Recorded::NotProven,
                 Recorded::NotProven,
                 tart,
                 MetaRun::NoIdentity,
@@ -877,10 +803,8 @@ mod tests {
     }
 
     impl Effects for Recording {
-        fn stop_and_delete(&self, id: &str, main: i32, keeper: Option<i32>) -> bool {
-            self.calls
-                .borrow_mut()
-                .push(format!("stop {id} {main} {keeper:?}"));
+        fn stop_and_delete(&self, id: &str, main: i32) -> bool {
+            self.calls.borrow_mut().push(format!("stop {id} {main}"));
             !self.stays
         }
         fn delete_by_name(&self, id: &str) -> bool {
@@ -895,14 +819,13 @@ mod tests {
         paths
     }
 
-    fn record(id: &str, main: Option<(i32, u64)>, keeper: Option<(i32, u64)>) -> StartRecord {
+    fn record(id: &str, main: Option<(i32, u64)>) -> StartRecord {
         let process = |(pid, start)| RecordedProcess {
             pid,
             identity: Some(identity(start)),
         };
         StartRecord {
             main: main.map(process),
-            keeper: keeper.map(process),
             ..StartRecord::new(id, VmTool::Tart)
         }
     }
@@ -938,7 +861,7 @@ mod tests {
     fn a_record_whose_tart_run_matches_is_stopped_and_removed_with_its_sidecars() {
         let dir = tempfile::tempdir().unwrap();
         let paths = paths(dir.path());
-        record("v", Some((10, 1)), Some((11, 2)))
+        record("v", Some((10, 1)))
             .write(&paths)
             .unwrap();
         sidecars(&paths, "v", meta_of("v", 10, Some(1)));
@@ -948,27 +871,27 @@ mod tests {
         let result = only(run(
             &paths,
             &tart,
-            &Host([(10, 1), (11, 2)].into()),
+            &Host([(10, 1)].into()),
             &effects,
         ));
 
         assert!(result.removed, "{result:?}");
-        assert_eq!(*effects.calls.borrow(), ["stop v 10 Some(11)"]);
+        assert_eq!(*effects.calls.borrow(), ["stop v 10"]);
         assert!(files(&paths).is_empty(), "{:?}", files(&paths));
     }
 
     #[test]
-    fn a_keeper_that_matches_beside_a_tart_run_that_does_not_gets_no_signal() {
+    fn a_record_whose_tart_run_is_gone_is_deleted_by_name_with_no_signal() {
         let dir = tempfile::tempdir().unwrap();
         let paths = paths(dir.path());
-        // The `tart run` is gone, the keeper lives, and tart reports no running VM.
-        record("v", Some((10, 1)), Some((11, 2)))
+        // The `tart run` is gone, and tart reports no running VM.
+        record("v", Some((10, 1)))
             .write(&paths)
             .unwrap();
         let effects = Recording::default();
         let tart = FakeTart::default();
 
-        let result = only(run(&paths, &tart, &Host([(11, 2)].into()), &effects));
+        let result = only(run(&paths, &tart, &Host(Default::default()), &effects));
 
         assert!(result.removed);
         assert_eq!(
@@ -982,7 +905,7 @@ mod tests {
     fn a_record_beside_a_running_vm_that_no_meta_proves_keeps_the_vm_and_reports_removed_false() {
         let dir = tempfile::tempdir().unwrap();
         let paths = paths(dir.path());
-        record("v", None, None).write(&paths).unwrap();
+        record("v", None).write(&paths).unwrap();
         sidecars(&paths, "v", meta_of("v", 99, None));
         let effects = Recording::default();
         let tart = FakeTart::with(&[("v", "darwin")]);
@@ -1004,7 +927,7 @@ mod tests {
         let paths = paths(dir.path());
         // The second start of the id wrote its record, and the crash came before its clone step
         // cleared the sidecars of the first start. The first start's `tart run` lives.
-        record("v", None, None).write(&paths).unwrap();
+        record("v", None).write(&paths).unwrap();
         sidecars(&paths, "v", meta_of("v", 20, Some(5)));
         let effects = Recording::default();
         let tart = FakeTart::with(&[("v", "darwin")]);
@@ -1020,7 +943,7 @@ mod tests {
     fn an_older_meta_beside_a_running_vm_is_removed() {
         let dir = tempfile::tempdir().unwrap();
         let paths = paths(dir.path());
-        record("v", None, None).write(&paths).unwrap();
+        record("v", None).write(&paths).unwrap();
         sidecars(&paths, "v", meta_of("v", 20, None));
         let effects = Recording::default();
         let tart = FakeTart::with(&[("v", "darwin")]);
@@ -1036,7 +959,7 @@ mod tests {
     fn a_tart_that_does_not_answer_keeps_the_vm_and_the_record() {
         let dir = tempfile::tempdir().unwrap();
         let paths = paths(dir.path());
-        record("v", Some((10, 1)), None).write(&paths).unwrap();
+        record("v", Some((10, 1))).write(&paths).unwrap();
         sidecars(&paths, "v", meta_of("v", 99, Some(7)));
         let effects = Recording::default();
         let tart = FakeTart::default();
@@ -1058,7 +981,7 @@ mod tests {
     fn a_vm_that_stays_after_its_removal_keeps_the_record_and_the_sidecars() {
         let dir = tempfile::tempdir().unwrap();
         let paths = paths(dir.path());
-        record("v", Some((10, 1)), None).write(&paths).unwrap();
+        record("v", Some((10, 1))).write(&paths).unwrap();
         sidecars(&paths, "v", meta_of("v", 10, Some(1)));
         let effects = Recording {
             stays: true,
@@ -1131,7 +1054,7 @@ mod tests {
     /// answer at the start of the app.
     fn kept_by_the_fourth_row(dir: &Path) -> (VmPaths, Undecided, StartRecord) {
         let paths = paths(dir);
-        record("v", Some((10, 1)), None).write(&paths).unwrap();
+        record("v", Some((10, 1))).write(&paths).unwrap();
         sidecars(&paths, "v", meta_of("v", 99, None));
         let tart = FakeTart::default();
         tart.fail_list(true);
@@ -1173,8 +1096,8 @@ mod tests {
     fn only_a_record_of_the_fourth_row_is_decided_again() {
         let dir = tempfile::tempdir().unwrap();
         let paths = paths(dir.path());
-        record("kept", None, None).write(&paths).unwrap();
-        record("gone", None, None).write(&paths).unwrap();
+        record("kept", None).write(&paths).unwrap();
+        record("gone", None).write(&paths).unwrap();
         let tart = FakeTart::default();
         // The list answers: both records are decided at once, and none stays.
         let (results, undecided) = run_keeping(
@@ -1339,7 +1262,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let (paths, undecided, _) = kept_by_the_fourth_row(dir.path());
         // A start of the id wrote its own record, with a `tart run` of its own.
-        record("v", Some((77, 7)), None).write(&paths).unwrap();
+        record("v", Some((77, 7))).write(&paths).unwrap();
         let effects = Recording::default();
         let tart = FakeTart::default();
 

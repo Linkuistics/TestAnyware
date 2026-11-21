@@ -673,11 +673,10 @@ mod tart_stop {
             add_fake_tart(app);
             add_tart_vm(app, ID, "running");
             app.add_sidecars(ID, "macos", "tart", 5902);
-            // The meta of an older start: a pid, a keeper pid, and no identity.
+            // The meta of an older start: a pid, and no identity.
             std::fs::write(
                 &sidecars(app, ID)[1],
-                json!({ "id": ID, "tool": "tart", "pid": orphan.0, "keeper_pid": orphan.0 })
-                    .to_string(),
+                json!({ "id": ID, "tool": "tart", "pid": orphan.0 }).to_string(),
             )
             .unwrap();
         });

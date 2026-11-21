@@ -1980,6 +1980,14 @@ fn the_record_of_a_start_lives_while_the_start_runs_and_is_gone_after_each_end()
     assert!(fixture.status()["adoption"]["unfinished_starts"].as_array().unwrap().is_empty());
 }
 
+/// Does the start record at `path` name the `tart run` of its start, with its identity?
+fn names_tart_run(path: &std::path::Path) -> bool {
+    std::fs::read_to_string(path)
+        .ok()
+        .and_then(|text| serde_json::from_str::<Value>(&text).ok())
+        .is_some_and(|record| record["main"]["identity"].is_object())
+}
+
 #[test]
 fn a_cancelled_start_leaves_no_record_and_a_running_start_has_one_that_names_its_processes() {
     let _serial = serial();
@@ -1988,12 +1996,7 @@ fn a_cancelled_start_leaves_no_record_and_a_running_start_has_one_that_names_its
     let client = fixture.spawn_start("rec-c", &[]);
     until("the start to boot", || fixture.runs("rec-c"));
     let record_path = fixture.start_record("rec-c");
-    until("the record to name the tart run and the keeper", || {
-        std::fs::read_to_string(&record_path)
-            .ok()
-            .and_then(|text| serde_json::from_str::<Value>(&text).ok())
-            .is_some_and(|record| !record["main"].is_null() && !record["keeper"].is_null())
-    });
+    until("the record to name the tart run", || names_tart_run(&record_path));
     let record: Value =
         serde_json::from_str(&std::fs::read_to_string(&record_path).unwrap()).unwrap();
     assert_eq!(record["id"], "rec-c");
@@ -2016,13 +2019,10 @@ fn an_app_killed_during_a_boot_removes_that_vm_its_clone_and_its_sidecars_before
     let client = fixture.spawn_start("crash-a", &[]);
     until("the start to boot", || fixture.runs("crash-a"));
     let record_path = fixture.start_record("crash-a");
-    until("the record to name the keeper", || {
-        std::fs::read_to_string(&record_path).is_ok_and(|text| text.contains("keeper"))
-    });
+    until("the record to name the tart run", || names_tart_run(&record_path));
     let record: Value =
         serde_json::from_str(&std::fs::read_to_string(&record_path).unwrap()).unwrap();
     let tart_run = record["main"]["pid"].as_i64().unwrap() as i32;
-    let keeper = record["keeper"]["pid"].as_i64().unwrap() as i32;
 
     fixture.crash();
     let (code, envelope, err) = client.finish();
@@ -2039,7 +2039,6 @@ fn an_app_killed_during_a_boot_removes_that_vm_its_clone_and_its_sidecars_before
     );
     assert_eq!(status["adoption"]["unfinished_starts"][0]["removed"], true, "{status}");
     until("the tart run to end", || !testanyware_vm::process::process_alive(tart_run));
-    until("the keeper to end", || !testanyware_vm::process::process_alive(keeper));
     assert!(!fixture.cloned("crash-a"));
     assert!(!record_path.exists());
     assert!(!sidecars(&fixture, "crash-a")[0].exists() && !sidecars(&fixture, "crash-a")[1].exists());
@@ -2056,10 +2055,7 @@ fn a_vm_that_replaced_the_clone_of_a_record_is_never_stopped_and_counts_as_an_ex
     let mut fixture = Fixture::starved();
     let client = fixture.spawn_start("crash-c", &[]);
     until("the start to boot", || fixture.runs("crash-c"));
-    until("the record to name the keeper", || {
-        std::fs::read_to_string(fixture.start_record("crash-c"))
-            .is_ok_and(|text| text.contains("keeper"))
-    });
+    until("the record to name the tart run", || names_tart_run(&fixture.start_record("crash-c")));
     let tart_run = fixture.tart_run_pid("crash-c").unwrap();
 
     fixture.crash();
@@ -2225,10 +2221,7 @@ fn a_start_of_the_same_id_joins_the_queue_while_the_record_stays_and_the_queue_s
     let mut fixture = Fixture::starved();
     let client = fixture.spawn_start("retry-c", &[]);
     until("the start to boot", || fixture.runs("retry-c"));
-    until("the record to name the keeper", || {
-        std::fs::read_to_string(fixture.start_record("retry-c"))
-            .is_ok_and(|text| text.contains("keeper"))
-    });
+    until("the record to name the tart run", || names_tart_run(&fixture.start_record("retry-c")));
     let tart_run = fixture.tart_run_pid("retry-c").unwrap();
     fixture.crash();
     let _ = client.finish();
@@ -2246,9 +2239,12 @@ fn a_start_of_the_same_id_joins_the_queue_while_the_record_stays_and_the_queue_s
     // A start of the id takes the gate of the id, and its clone step waits for the tart that does
     // not answer. Two more starts follow it. The app never waits for the gate, so the record stays.
     let same = fixture.spawn_start("retry-c", &["--wait=60"]);
+    // The new record names no `tart run` yet, because its clone step waits for tart.
     until("the start of the id to replace the record", || {
         std::fs::read_to_string(fixture.start_record("retry-c"))
-            .is_ok_and(|text| !text.contains("keeper"))
+            .ok()
+            .and_then(|text| serde_json::from_str::<Value>(&text).ok())
+            .is_some_and(|record| record["main"].is_null())
     });
     let second = fixture.spawn_start("retry-d", &["--wait=60"]);
     let third = fixture.spawn_start("retry-e", &["--wait=60"]);
@@ -2381,9 +2377,7 @@ fn a_cleanup_that_outlasts_the_wait_of_the_quit_lets_the_app_exit_at_the_limit_a
     let client = fixture.spawn_start("qt-d", &[]);
     until("the start to boot", || fixture.runs("qt-d"));
     let record = fixture.start_record("qt-d");
-    until("the record to name the keeper", || {
-        std::fs::read_to_string(&record).is_ok_and(|text| text.contains("keeper"))
-    });
+    until("the record to name the tart run", || names_tart_run(&record));
     // The removal of the clone takes far longer than the wait of the quit.
     fixture.set_fake("delete-delay", "20");
 

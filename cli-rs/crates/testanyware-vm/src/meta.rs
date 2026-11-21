@@ -28,18 +28,10 @@ pub struct VmMeta {
     pub clone_dir: Option<String>,
     #[serde(rename = "viewer_window_id", default, skip_serializing_if = "Option::is_none")]
     pub viewer_window_id: Option<String>,
-    /// Pid of the VNC keeper that `vm start` spawned for a tart guest
-    /// (ADR-0018). Absent for QEMU guests and for a meta written before the
-    /// keeper existed.
-    #[serde(rename = "keeper_pid", default, skip_serializing_if = "Option::is_none")]
-    pub keeper_pid: Option<i32>,
     /// The identity of the process at `pid`, read when it started. Absent in a meta written
     /// before identities were recorded: such a VM gets streams only, and no signal.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub identity: Option<ProcessIdentity>,
-    /// The identity of the process at `keeper_pid`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub keeper_identity: Option<ProcessIdentity>,
     /// Pid of the swtpm of a QEMU guest that has a TPM. swtpm ends when its QEMU ends.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub swtpm_pid: Option<i32>,
@@ -61,9 +53,7 @@ impl VmMeta {
             pid,
             clone_dir: None,
             viewer_window_id: None,
-            keeper_pid: None,
             identity: None,
-            keeper_identity: None,
             swtpm_pid: None,
             swtpm_identity: None,
             session_dir: None,
@@ -96,9 +86,7 @@ mod tests {
             pid: 4242,
             clone_dir: Some("/d/clones/testanyware-deadbeef".into()),
             viewer_window_id: None,
-            keeper_pid: None,
             identity: None,
-            keeper_identity: None,
             swtpm_pid: None,
             swtpm_identity: None,
             session_dir: None,
@@ -145,9 +133,7 @@ mod tests {
             pid: 5151,
             clone_dir: None,
             viewer_window_id: None,
-            keeper_pid: None,
             identity: None,
-            keeper_identity: None,
             swtpm_pid: None,
             swtpm_identity: None,
             session_dir: None,
@@ -166,47 +152,11 @@ mod tests {
         let meta = VmMeta {
             clone_dir: Some("/c".into()),
             viewer_window_id: Some("w".into()),
-            keeper_pid: Some(7),
             ..VmMeta::new("v", VmTool::Qemu, 1)
         };
         let json = serde_json::to_string(&meta).unwrap();
         assert!(json.contains("\"clone_dir\""), "snake_case clone_dir: {json}");
         assert!(json.contains("\"viewer_window_id\""), "snake_case viewer id: {json}");
-        assert!(json.contains("\"keeper_pid\":7"), "snake_case keeper pid: {json}");
-    }
-
-    #[test]
-    fn keeper_pid_round_trips_and_is_omitted_when_absent() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("v.meta.json");
-        let mut meta = VmMeta {
-            id: "testanyware-abcd1234".into(),
-            tool: VmTool::Tart,
-            pid: 5151,
-            clone_dir: None,
-            viewer_window_id: None,
-            keeper_pid: Some(6262),
-            identity: None,
-            keeper_identity: None,
-            swtpm_pid: None,
-            swtpm_identity: None,
-            session_dir: None,
-        };
-        meta.write_atomic(&path).unwrap();
-        assert_eq!(VmMeta::load(&path).unwrap().keeper_pid, Some(6262));
-
-        meta.keeper_pid = None;
-        let json = serde_json::to_string(&meta).unwrap();
-        assert!(!json.contains("keeper_pid"), "an absent keeper pid must not serialize: {json}");
-    }
-
-    #[test]
-    fn a_meta_written_before_the_keeper_still_loads() {
-        // The shape `vm start --platform macos` wrote before ADR-0018.
-        let json = r#"{"id":"testanyware-abcd1234","pid":5151,"tool":"tart"}"#;
-        let meta: VmMeta = serde_json::from_str(json).unwrap();
-        assert_eq!(meta.tool, VmTool::Tart);
-        assert_eq!(meta.keeper_pid, None);
     }
 
     fn identity(start_time: u64) -> ProcessIdentity {
@@ -219,9 +169,7 @@ mod tests {
         let path = dir.path().join("v.meta.json");
         let meta = VmMeta {
             clone_dir: Some("/d/clones/v".into()),
-            keeper_pid: Some(7),
             identity: Some(identity(100)),
-            keeper_identity: Some(identity(101)),
             swtpm_pid: Some(8),
             swtpm_identity: Some(identity(102)),
             session_dir: Some("/tmp/testanyware-v".into()),
@@ -232,7 +180,7 @@ mod tests {
 
         let json = serde_json::to_string(&meta).unwrap();
         for key in [
-            "\"identity\"", "\"keeper_identity\"", "\"swtpm_pid\"", "\"swtpm_identity\"",
+            "\"identity\"", "\"swtpm_pid\"", "\"swtpm_identity\"",
             "\"session_dir\"", "\"start_time\"", "\"boot_session\"",
         ] {
             assert!(json.contains(key), "{key} is in the meta: {json}");
@@ -254,7 +202,6 @@ mod tests {
         let meta: VmMeta = serde_json::from_str(json).unwrap();
         assert_eq!(meta.pid, 9876);
         assert_eq!(meta.identity, None);
-        assert_eq!(meta.keeper_identity, None);
         assert_eq!(meta.swtpm_pid, None);
         assert_eq!(meta.swtpm_identity, None);
         assert_eq!(meta.session_dir, None);

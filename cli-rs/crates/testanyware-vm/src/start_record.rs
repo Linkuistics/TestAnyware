@@ -42,10 +42,6 @@ pub struct StartRecord {
     /// framework refused replaces it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub main: Option<RecordedProcess>,
-    /// The VNC keeper of a tart start. It ends only when its next connect fails (ADR-0018), so
-    /// a keeper that matches proves nothing about the VM.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub keeper: Option<RecordedProcess>,
     /// The swtpm of a QEMU start that has a TPM.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub swtpm: Option<RecordedProcess>,
@@ -58,7 +54,6 @@ impl StartRecord {
             id: id.into(),
             backend,
             main: None,
-            keeper: None,
             swtpm: None,
         }
     }
@@ -142,11 +137,11 @@ mod tests {
                 pid: 40,
                 identity: Some(identity(1)),
             }),
-            keeper: Some(RecordedProcess {
+            swtpm: Some(RecordedProcess {
                 pid: 41,
                 identity: None,
             }),
-            ..StartRecord::new("vm-1", VmTool::Tart)
+            ..StartRecord::new("vm-1", VmTool::Qemu)
         };
         record.write(&paths).unwrap();
         assert_eq!(

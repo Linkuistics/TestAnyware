@@ -16,8 +16,8 @@
 #      refuses to run when another app answers, because that answer would not prove this bundle.
 #      `vm start --platform macos` then starts a guest through the app, and its meta must record
 #      the identity of each process.
-#   2. Quit the app through the Apple event that the Dock's Quit sends. The guest, its keeper and
-#      its `tart run` process must run on, with the same pids and start times. With no app, an
+#   2. Quit the app through the Apple event that the Dock's Quit sends. The guest and its
+#      `tart run` process must run on, with the same pid and start time. With no app, an
 #      agent command fails with APP_UNREACHABLE, so the CLI has no direct path.
 #   3. Open the app again. It adopts the guest by identity (not legacy, agent and VNC
 #      answering, not in `not_adopted`). `vm list` shows the guest, an agent command and a screen
@@ -80,8 +80,7 @@ done
 unset TESTANYWARE_APP_SOCKET TESTANYWARE_VM_ID TESTANYWARE_AGENT TESTANYWARE_VNC TESTANYWARE_CONNECT
 
 status() { curl -sf --max-time 2 --unix-socket "$socket" http://localhost/v1/status; }
-# The app is the process with no arguments. Its VNC keepers run the same executable as
-# `_vnc-keeper`, and they must outlive the app, so a pattern for the directory would match them.
+# The app is the process of the executable with no arguments.
 app_pattern="^$bundle/Contents/MacOS/testanyware-app\$"
 bundle_running() { pgrep -f "$app_pattern" >/dev/null; }
 tart_names() { tart list --format json | jq -r '.[].Name'; }
@@ -99,20 +98,15 @@ app_opened=0
 cleanup() {
   local rc=$?
   trap - ERR
-  local id keeper
+  local id
   for id in ${ids[@]+"${ids[@]}"}; do
     if [[ -f "$(meta_of "$id")" ]] && status >/dev/null 2>&1; then
       "$bin" vm stop "$id" >/dev/null 2>&1 || true
     fi
     if tart_names 2>/dev/null | grep -qx "$id"; then
       echo "app-adoption-live: $id survived the app's stop. Removing it with tart." >&2
-      keeper=$(jq -r '.keeper_pid // empty' "$(meta_of "$id")" 2>/dev/null || true)
       tart stop "$id" >/dev/null 2>&1 || true
       tart delete "$id" >/dev/null 2>&1 || true
-      # Only a process that names this guest as its keeper.
-      if [[ -n "$keeper" ]] && ps -o command= -p "$keeper" 2>/dev/null | grep -q -- "_vnc-keeper --id $id"; then
-        kill "$keeper" 2>/dev/null || true
-      fi
       rm -f "$vms_dir/$id".json "$vms_dir/$id".meta.json
     fi
   done
@@ -195,30 +189,22 @@ run() {
 
 # Record the processes of a guest, so a later phase can show that none restarted.
 record_processes() {
-  local id=$1 meta pid keeper
+  local id=$1 meta pid
   meta=$(meta_of "$id")
   pid=$(jq -r .pid "$meta")
-  keeper=$(jq -r '.keeper_pid // empty' "$meta")
   alive "$pid" || fail "$id: the tart process $pid does not run."
   printf '%s %s\n' "$pid" "$(started_at "$pid")" >"$work/$id.main"
-  if [[ -n "$keeper" ]]; then
-    alive "$keeper" || fail "$id: the keeper $keeper does not run."
-    printf '%s %s\n' "$keeper" "$(started_at "$keeper")" >"$work/$id.keeper"
-  fi
 }
 
-# same_processes: each recorded process runs on, with the same pid and start time.
+# same_processes: the recorded tart process runs on, with the same pid and start time.
 same_processes() {
-  local id=$1 file line pid start
-  for file in "$work/$id.main" "$work/$id.keeper"; do
-    [[ -f "$file" ]] || continue
-    # The line is "<pid> <start time>", and the start time holds spaces.
-    line=$(<"$file")
-    pid=${line%% *}
-    start=${line#* }
-    alive "$pid" || fail "$id: process $pid ($(basename "$file")) ended."
-    [[ "$(started_at "$pid")" == "$start" ]] || fail "$id: process $pid ($(basename "$file")) restarted."
-  done
+  local id=$1 line pid start
+  # The line is "<pid> <start time>", and the start time holds spaces.
+  line=$(<"$work/$id.main")
+  pid=${line%% *}
+  start=${line#* }
+  alive "$pid" || fail "$id: the tart process $pid ended."
+  [[ "$(started_at "$pid")" == "$start" ]] || fail "$id: the tart process $pid restarted."
 }
 
 adopted_row() { jq -c --arg id "$2" '.adoption.adopted[] | select(.id == $id)' <<<"$1"; }
@@ -286,9 +272,9 @@ out=$(run "vm start" vm start --platform macos --id "$id" --json)
 ok "vm start: $id reached a healthy agent in $((SECONDS - begin)) s"
 
 meta=$(meta_of "$id")
-jq -e '.identity.start_time and .identity.boot_session and .keeper_identity.start_time' "$meta" >/dev/null ||
+jq -e '.identity.start_time and .identity.boot_session' "$meta" >/dev/null ||
   fail "the meta records no identity: $(<"$meta")"
-ok "the meta records the pid, start time and boot session of the guest and its keeper"
+ok "the meta records the pid, start time and boot session of the guest"
 record_processes "$id"
 
 # ---- 2: quit the app, and the guest runs on ----------------------------------------------------
@@ -298,7 +284,7 @@ ok "the app quit: no process, no socket file"
 [[ "$(tart_state "$id")" == running ]] || fail "after the quit, tart says $id is $(tart_state "$id")."
 same_processes "$id"
 [[ -f "$meta" ]] || fail "after the quit, the meta of $id is gone."
-ok "the guest runs on: tart says running, and its tart process and keeper keep their pids and start times"
+ok "the guest runs on: tart says running, and its tart process keeps its pid and start time"
 
 nowhere=$work/none/testanyware.sock
 if out=$(TESTANYWARE_APP_SOCKET=$nowhere "$bin" agent snapshot --vm "$id" --json 2>&1); then
@@ -322,7 +308,7 @@ ok "no process of $id restarted: the app adopted the guest and started nothing"
 
 quit_app
 cp "$meta" "$work/$id.meta.with-identity"
-jq 'del(.identity, .keeper_identity, .swtpm_identity)' "$work/$id.meta.with-identity" >"$work/$id.meta.older"
+jq 'del(.identity, .swtpm_identity)' "$work/$id.meta.with-identity" >"$work/$id.meta.older"
 cp "$work/$id.meta.older" "$meta"
 jq -e 'has("identity") | not' "$meta" >/dev/null || fail "the hand-made meta still records an identity."
 info "the meta of $id is now an older meta: $(jq -c . "$meta")"

@@ -4,7 +4,7 @@
 //! fake script (`testanyware-vm/tests/fixtures/fake-tart`): a clone is a file, and a running
 //! VM is a `sleep` process. The agent is a wiremock server on loopback, and the app probes it
 //! because `--test-agent-port` moves the agent port of a start. A plain listener stands for the
-//! VNC port that the keeper holds.
+//! VNC port.
 //!
 //! The tart backend exists on a macOS host only, and so does the direct path's absence: a macOS
 //! host has no direct `vm start` to compare with. The expected output is written out below.
@@ -18,7 +18,7 @@ use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
-use common::{app_binary, serial, FakeAgent, OutputExt, TestApp, CLI};
+use common::{serial, FakeAgent, OutputExt, TestApp, CLI};
 use serde_json::{json, Value};
 use wiremock::ResponseTemplate;
 
@@ -266,7 +266,7 @@ fn a_start_prints_only_the_id_in_text_mode() {
 }
 
 #[test]
-fn the_keeper_runs_from_the_apps_executable_and_the_detached_children_hold_no_app_socket() {
+fn the_detached_tart_run_holds_no_app_socket() {
     let _serial = serial();
     let fixture = Fixture::healthy();
     let out = fixture.start("start-3", &["--json"]);
@@ -274,38 +274,20 @@ fn the_keeper_runs_from_the_apps_executable_and_the_detached_children_hold_no_ap
 
     let [_, meta_path] = fixture.sidecars("start-3");
     let meta: Value = serde_json::from_slice(&std::fs::read(meta_path).unwrap()).unwrap();
-    let keeper = meta["keeper_pid"]
-        .as_u64()
-        .expect("the meta names the keeper") as u32;
     let tart = fixture.tart_run_pid("start-3").unwrap() as u32;
-
-    let command = ps(keeper, "command");
-    assert!(
-        command.starts_with(&app_binary().display().to_string()),
-        "the keeper runs from the app's own executable: {command}"
-    );
-    assert!(command.contains("_vnc-keeper --id start-3"), "{command}");
-    // The keeper holds its connection to the VNC port: the app's executable ran the command.
-    until("the keeper to be in its session", || {
-        nix_sid(keeper) == keeper as i32 && nix_sid(tart) == tart as i32
-    });
+    assert_eq!(meta["pid"].as_u64(), Some(u64::from(tart)), "{meta}");
+    until("tart run to be in its own session", || nix_sid(tart) == tart as i32);
 
     // The control: the app holds Unix sockets (its listener, and the connection of the start
     // that just ended), so the instrument finds sockets where there are some. A child may hold
     // sockets of its own, such as the pair of its signal driver, and those are not the app's.
     let app = unix_socket_addresses(fixture.app.pid());
     assert!(!app.is_empty(), "the instrument finds no socket of the app");
-    for (name, pid) in [("tart run", tart), ("the keeper", keeper)] {
-        let shared: Vec<_> = unix_socket_addresses(pid)
-            .intersection(&app)
-            .cloned()
-            .collect();
-        assert_eq!(
-            shared,
-            Vec::<String>::new(),
-            "{name} holds a socket of the app"
-        );
-    }
+    let shared: Vec<_> = unix_socket_addresses(tart)
+        .intersection(&app)
+        .cloned()
+        .collect();
+    assert_eq!(shared, Vec::<String>::new(), "tart run holds a socket of the app");
 }
 
 #[test]
@@ -318,16 +300,13 @@ fn a_started_vm_has_a_complete_meta() {
     let [_, meta_path] = fixture.sidecars("start-5");
     let meta: Value = serde_json::from_slice(&std::fs::read(meta_path).unwrap()).unwrap();
     let tart = fixture.tart_run_pid("start-5").unwrap();
-    let keeper = meta["keeper_pid"].as_i64().expect("the meta names the keeper") as i32;
     assert_eq!(meta["pid"].as_i64(), Some(i64::from(tart)));
 
-    // Each process that the meta names has the identity that the host reads from it now.
-    for (pid, key) in [(tart, "identity"), (keeper, "keeper_identity")] {
-        let live = testanyware_vm::identity::read_identity(&testanyware_vm::identity::SystemProbe, pid)
-            .unwrap_or_else(|| panic!("the host reads the identity of {key} ({pid})"));
-        assert_eq!(meta[key]["start_time"].as_u64(), Some(live.start_time), "{key}: {meta}");
-        assert_eq!(meta[key]["boot_session"].as_str(), Some(live.boot_session.as_str()), "{key}");
-    }
+    // The meta names the identity that the host reads from `tart run` now.
+    let live = testanyware_vm::identity::read_identity(&testanyware_vm::identity::SystemProbe, tart)
+        .unwrap_or_else(|| panic!("the host reads the identity of tart run ({tart})"));
+    assert_eq!(meta["identity"]["start_time"].as_u64(), Some(live.start_time), "{meta}");
+    assert_eq!(meta["identity"]["boot_session"].as_str(), Some(live.boot_session.as_str()), "{meta}");
     assert!(meta.get("session_dir").is_none(), "a tart guest has no session directory: {meta}");
     assert!(meta.get("swtpm_pid").is_none(), "a tart guest has no swtpm: {meta}");
 

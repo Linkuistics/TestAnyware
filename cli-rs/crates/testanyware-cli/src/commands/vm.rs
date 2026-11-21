@@ -25,14 +25,6 @@ use crate::resolve::{app_socket_with_env, ConnectionOptions, EnvProvider};
 
 // ---- handlers -----------------------------------------------------------
 
-/// The hidden `_vnc-keeper` command (ADR-0018): hold one silent connection to
-/// a tart guest's VNC port until the port goes away. `vm start` spawns it
-/// detached, with its output in `<id>.keeper.log`. Returns the exit code: 0
-/// when it held a connection and the port then went away, 1 otherwise.
-pub async fn run_vnc_keeper(id: String, host: String, port: u16) -> i32 {
-    testanyware_vm::keeper::run(&id, &host, port).await
-}
-
 /// `testanyware vm start`.
 #[allow(clippy::too_many_arguments)]
 pub async fn run_vm_start(

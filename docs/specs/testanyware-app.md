@@ -74,8 +74,7 @@ flowchart TD
     direction TB
     tart["tart run"]
     qemu["QEMU and swtpm"]
-    keeper["VNC keeper"]
-    tart ~~~ qemu ~~~ keeper
+    tart ~~~ qemu
   end
   subgraph endpoints["Guest endpoints"]
     direction TB
@@ -240,7 +239,7 @@ release 2.3.99 from a local tap and upgraded the cask to the release candidate
   answered the first-start dialog once, before the upgrade, and no dialog came
   after it.
 - Homebrew quit the app, replaced the bundle and opened it again.
-- The guest kept its tart process and its keeper, and the new app adopted it.
+- The guest kept each of its processes, and the new app adopted it.
 - The adoption probes of the new app answered, and the first command after the
   upgrade succeeded in 1 s.
 - System Settings showed one row for TestAnyware.app. The rows of the
@@ -256,8 +255,7 @@ The real upgrade of this Mac from 2.4.0 to 2.5.0 is the second sample. It ran on
 - The quarantine flags of the new bundle are `01c1`, which include the bit of
   the user's approval. No dialog of the first start was needed.
 - Homebrew quit the app, replaced the bundle and opened it again. The guest
-  `koine-verify-23707` kept its tart process and its keeper, and the new app
-  adopted it.
+  `koine-verify-23707` kept each of its processes, and the new app adopted it.
 - `testanyware doctor` reported the app as installed and running, both at build
   2.5.0, and its dial to the guest connected. The first command after the upgrade
   (`screen size`) succeeded.
@@ -359,12 +357,11 @@ the connection. TestAnyware's own tests and scripts name a VM only by its id.
 | The agent and VNC connections of a command, by `--vm`, `--agent`, `--vnc` or `--connect` | The app | A guest stream from the Host CLI |
 | `vm start`, `vm stop`, `vm list` and `vm delete`, with the health wait and the resolution switch | The app | A lifecycle request from the Host CLI |
 | The adoption probes and the Local Network diagnosis | The app | No client takes part |
-| The VNC keeper of a tart guest, on loopback | The keeper, which the app starts from its own executable | No client takes part |
 | The host harnesses of ADR-0009 | The app | Guest streams, through the Host CLI's library |
 | The live checks of the Taskfile | The app | Host CLI commands |
 | `vm create-golden`, with its SSH, RFB and agent connections, and the live tests of its parts | The Host CLI itself, on the direct path | No app takes part. When the app runs, golden creation asks it only for a macOS guest slot |
 
-The processes that the app starts are the VNC keepers and the platform
+The one process that the app starts to dial a guest is the platform
 `/usr/bin/nc` of the Local Network diagnosis. A live check may also ask
 `/usr/bin/nc` whether its own shell can dial a guest. That probe carries no
 traffic. It is a control, which shows whether a command went through the app.
@@ -606,7 +603,7 @@ cancels the start and cleans up as it does after a failed start. `vm start
 ends that wait. The app reads the cancel at each wait of the start: the slot
 wait, the stages of the boot and the agent wait. It reads the cancel after
 each step that runs to its end, such as `tart clone`. The cleanup removes the
-VM, its VNC keeper and its sidecars, and it ignores `--keep-on-failure`,
+VM and its sidecars, and it ignores `--keep-on-failure`,
 because no client is left to reclaim a kept VM. A start that succeeded at the
 moment the client left is stopped again.
 
@@ -664,13 +661,11 @@ sequenceDiagram
   participant C as Host CLI
   participant A as TestAnyware app
   participant T as tart run
-  participant K as VNC keeper
   participant G as In-VM agent
   C->>A: POST /v1/vms: options, directories, protocol range
   A->>A: check uid, range and directories
   A->>T: clone, then spawn detached
   A-->>C: progress event
-  A->>K: spawn detached, from the app's own executable
   A->>G: health wait, with the Local Network diagnosis
   A-->>C: progress event
   alt healthy
@@ -685,16 +680,15 @@ sequenceDiagram
 
 The app runs `vm start`, `vm stop`, `vm list` and `vm delete` with the
 lifecycle code that the Host CLI runs on other hosts. It starts `tart run`,
-QEMU, swtpm and the VNC keeper detached in their own sessions, as `vm start` does
-today. While the app runs, it reaps each of its children that exits. Each
-child outlives the app, as the measurements show. The app starts each VNC
-keeper from its own executable, so a keeper always matches the app's version.
-The executable answers the hidden command `_vnc-keeper` that the keeper runs.
+QEMU and swtpm detached in their own sessions, as `vm start` does today. While
+the app runs, it reaps each of its children that exits. Each child outlives the
+app, as the measurements show. For a tart guest, `vm start` starts no process
+beside `tart run` (ADR-0018).
 
 A detached child holds no descriptor of the app. On macOS a new socket gets
 close-on-exec in a second call. So a `fork` on another thread could hand a
 child a client socket that another thread has just accepted. The app starts
-`tart run`, QEMU, the keeper and `swtpm` with `posix_spawn` and
+`tart run`, QEMU and `swtpm` with `posix_spawn` and
 `POSIX_SPAWN_CLOEXEC_DEFAULT`, which closes every descriptor that a file action
 does not name. A thread waits for each child, so none stays a zombie.
 
@@ -735,8 +729,7 @@ The rules of adoption:
   stops swtpm through its control socket.
 - An older meta records no identity. The app serves the streams of such a
   VM, but it sends a signal to none of its processes. It stops a tart guest by
-  name with `tart stop` and `tart delete`, and the VNC keeper then ends itself
-  (ADR-0018).
+  name with `tart stop` and `tart delete`.
 - An older meta records no session directory either. The app looks for it by
   the VM id, as the older Host CLI named it. It looks first in its own
   temporary directory, and then in `/tmp`, which a starter with no `TMPDIR` used.
@@ -745,14 +738,14 @@ The rules of adoption:
   that records no identity is an older meta. The app reports a VM whose process is
   gone as stopped. It reports a VM whose pid, start time or boot session differs as
   in doubt. Otherwise the app adopts the VM.
-- The decision looks at the main process. The app compares the keeper and swtpm again
-  at the moment of each signal, so a decision never authorises a later signal.
+- The decision looks at the main process. The app compares swtpm again at the
+  moment of each signal, so a decision never authorises a later signal.
 - The app probes the agent and the VNC banner of each adopted VM, each with a
   deadline of 8 seconds. A probe that gets no answer in time reports "not
   answering". That is never a statement that the guest is dead.
-- The app does not probe the VNC port of a tart guest that no live keeper holds.
-  The VNC server of macOS 27 aborts tart when a client connects 60 seconds or more
-  after the last one left (ADR-0018). The probe reports "not probed".
+- The app probes the VNC banner of a tart guest as it probes each other guest. The
+  host requirement removes the VNC fault that such a probe once triggered
+  (ADR-0018). A probe reports "not probed" only for a guest with no endpoint for it.
 - `vm stop` signals a process only on a full match of the pid, the start time and
   the boot session. This holds on the direct path too, for a meta with an identity.
   When the identity does not match, `vm stop` signals nothing. It removes neither
@@ -996,8 +989,7 @@ file and `TESTANYWARE_CONFIG=none`.
 
 `doctor` is the one command that runs with a file that fails. Its `config`
 check fails with the `CONFIG_INVALID` error object. Its other checks use the
-values that resolve without the file. The internal keeper that `vm start` spawns
-is not a command of the contract, and it ignores the file.
+values that resolve without the file.
 
 Each request names the directories that the Host CLI resolved. When they differ
 from the app's directories, the command fails with `APP_INCOMPATIBLE` and

@@ -17,7 +17,6 @@ pub mod error;
 pub mod health;
 pub mod id;
 pub mod identity;
-pub mod keeper;
 /// The stop of an older QEMU guest, through its control sockets and never by a signal.
 pub mod legacy_stop;
 pub mod lifecycle;

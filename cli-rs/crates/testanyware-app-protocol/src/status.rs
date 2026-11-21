@@ -165,8 +165,7 @@ pub enum ProbeAnswer {
     Pending,
     Answering,
     NotAnswering,
-    /// The app chose not to probe. A VNC probe of a tart guest that no keeper holds could crash
-    /// the guest (ADR-0018), so the app does not make it.
+    /// The app made no probe, because the guest has no endpoint for it.
     NotProbed,
 }
 

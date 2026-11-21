@@ -641,18 +641,11 @@ mod tests {
         assert!(!is_older_qemu_meta(&with));
         // The main process decides. A meta with a helper's identity and none for QEMU proves
         // nothing about QEMU, so it gets the stop that signals nothing.
-        for helper_only in [
-            VmMeta {
-                keeper_identity: Some(identity.clone()),
-                ..older.clone()
-            },
-            VmMeta {
-                swtpm_identity: Some(identity),
-                ..older.clone()
-            },
-        ] {
-            assert!(is_older_qemu_meta(&helper_only));
-        }
+        let helper_only = VmMeta {
+            swtpm_identity: Some(identity),
+            ..older.clone()
+        };
+        assert!(is_older_qemu_meta(&helper_only));
     }
 
     #[test]

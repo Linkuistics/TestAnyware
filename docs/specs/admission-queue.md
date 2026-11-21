@@ -563,7 +563,7 @@ release happens once.
 | During the clone | The clone runs to its end, and the app then removes it | None was held |
 | While the start waits in the queue | The start leaves the queue, and the app removes its clone | None was held |
 | At the admission | The lock orders the two events, as the diagram below shows | Released after the cleanup |
-| During the boot | The cleanup of today removes `tart run`, the keeper, the clone and the sidecars | Released after `tart run` has exited |
+| During the boot | The cleanup of today removes `tart run`, the clone and the sidecars | Released after `tart run` has exited |
 | After the result | Nothing changes: the VM belongs to the client | Held until the guest stops |
 
 The app releases the slot of an admitted start only after its `tart run` has
@@ -626,9 +626,7 @@ A mismatch of the identity proves only that the recorded process is gone. It
 does not prove that the VM of that name is still the clone of the start. tart
 names no instance of a VM, so the state of the VM decides.
 
-Only the recorded `tart run` decides, because that process is the VM. The
-keeper of the start is a separate process. It ends only when its next connect
-fails (ADR-0018). So a keeper that matches proves nothing about the VM.
+Only the recorded `tart run` decides, because that process is the VM.
 
 The table decides for a start on tart only. A start on QEMU has no tart name.
 The app removes it as the stop of the app does, and it never asks tart. For a
@@ -640,9 +638,6 @@ start on tart, the first row that holds decides:
 | The record names no `tart run` that matches in full. tart reports the VM as not running, or no such VM | No `tart run` holds the VM. The app removes it by name with `tart delete`, and it removes the sidecars and the record. It sends no signal |
 | The record names no `tart run` that matches in full. tart reports the VM as running | The record does not prove the process that runs the VM. It can be a VM that a person made, or the start's own `tart run` before the record named it. The app sends no signal, and it runs neither `tart stop` nor `tart delete`. It keeps the VM, and it removes the record. It also removes the spec and meta sidecars, unless the meta's own `tart run` matches in full |
 | tart does not answer within 5 s | The app keeps the VM and the record, and it decides again once the `tart list` of an observation answers. It removes the spec and meta sidecars, unless the meta's own `tart run` matches in full |
-
-In the second and the third row, a keeper of the start that still runs gets no
-signal. It ends by itself when its port refuses.
 
 The app never stops a running VM that the record does not prove. So in the third
 and the fourth row it keeps the sidecars only when they prove the VM. A meta that
@@ -1029,8 +1024,8 @@ no VM, no clone and no sidecar. It SHALL leave no slot held.
 #### Scenario: A cancel during the boot
 
 - **WHEN** the client of an admitted start ends before the result
-- **THEN** the app removes the VM, its keeper, its clone and its sidecars, and it
-  releases the slot after `tart run` has exited
+- **THEN** the app removes the VM, its clone and its sidecars, and it releases
+  the slot after `tart run` has exited
 
 ### Requirement: A wait that runs out says that it waited
 
@@ -1247,8 +1242,7 @@ spec, and each one grows.
   The tests of the decision for a start record cover each row of its table. They
   also cover a start record beside the meta of its own start, or of an earlier
   start of the same id. The meta of that earlier start comes in each outcome of
-  its check, an older meta included, in the third and the fourth row. Another
-  test has a keeper that matches while its `tart run` does not.
+  its check, an older meta included, in the third and the fourth row.
 
   The tests of a decision again cover the lists of observations. A list that
   reports the VM running gives the third row. So does a later list that does

@@ -1504,7 +1504,7 @@ tasks:
   scripts:check:
     desc: shellcheck and shfmt (-i 2 -ci) over the scripts the tasks here run
     vars:
-      SCRIPTS: scripts/live-start-checks.sh scripts/qemu-tpm-check.sh scripts/windows-healthy-start.sh scripts/vnc-keeper-live.sh scripts/build-app.sh scripts/app-bundle-live.sh scripts/app-routing-live.sh scripts/app-stream-end-live.sh scripts/herdr-acceptance-live.sh scripts/queue-live.sh scripts/input-live.sh scripts/app-adoption-live.sh scripts/upgrade-identity-live.sh
+      SCRIPTS: scripts/live-start-checks.sh scripts/qemu-tpm-check.sh scripts/windows-healthy-start.sh scripts/vnc-idle-live.sh scripts/build-app.sh scripts/app-bundle-live.sh scripts/app-routing-live.sh scripts/app-stream-end-live.sh scripts/herdr-acceptance-live.sh scripts/queue-live.sh scripts/input-live.sh scripts/app-adoption-live.sh scripts/upgrade-identity-live.sh
     cmds:
       - shellcheck -x {{.SCRIPTS}}
       - shfmt -i 2 -ci -d {{.SCRIPTS}}
@@ -1630,11 +1630,14 @@ tasks:
     cmds:
       - python3 scripts/tart-vnc-idle-repro.py --gap {{.GAP | default "70"}} {{if .BASE}}--base {{.BASE}}{{end}} {{if .HOLD}}--hold{{end}}
 
-  vm:vnc-keeper-live:
-    desc: 'Does the VNC keeper protect a tart guest on this macOS 27 host (ADR-0018)? A macOS clone survives 5 minutes with no other client, and a Linux clone survives 70 s; with the keeper killed, a macOS clone crashes after 70 s (the negative control); after `vm stop` no keeper and no clone remain. Optional MACOS_BASE, LINUX_BASE, IDLE, GAP. About 14 minutes; always stops and deletes its clones'
+  vm:vnc-idle-live:
+    desc: 'Does a tart guest survive idle time with no VNC client on this host (ADR-0018)? Through the app of the bundle (task vm:vnc-idle-live [APP=<bundle>]), a macOS guest that `vm start` starts takes two `screen size` commands 5 s apart and then 5 minutes with no VNC client, and a Linux guest 70 s. A `screen size` then works on each guest, and no `_vnc-keeper` process exists. APP defaults to the development bundle. Starts the bundle when no app answers, quits only that one, and refuses another app on the socket. Optional MACOS_BASE, LINUX_BASE, IDLE, GAP. About 10 minutes; always stops its guests'
     deps: [cli:build]
     cmds:
-      - scripts/vnc-keeper-live.sh
+      - |
+        app={{.APP | default "" | shellQuote}}
+        [ -n "$app" ] || app=$(scripts/build-app.sh dev | tail -n 1)
+        TESTANYWARE_BIN={{.BIN | shellQuote}} scripts/vnc-idle-live.sh "$app"
 
   vm:golden-name-free:
     desc: 'Refuse a golden NAME that `vm list --json --all` or `tart list --format json` already lists, and refuse when either inventory cannot be read (exit 1 present, 2 unreadable). Both golden recipes run it before any create, so a retained golden is never replaced. Optional GUARD_CLI and GUARD_TART name the executables; the fixture controls pass fakes. Reads only'

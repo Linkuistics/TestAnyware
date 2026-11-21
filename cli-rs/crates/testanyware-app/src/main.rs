@@ -92,25 +92,6 @@ struct Args {
     /// place of 10 s.
     #[arg(long = "test-quit-wait-ms", requires = "test_mode")]
     quit_wait_ms: Option<u64>,
-    #[command(subcommand)]
-    command: Option<Command>,
-}
-
-/// The app's executable also answers the hidden command that a VNC keeper runs. `vm start`
-/// spawns the keeper from the executable that starts the VM, so a keeper always matches the
-/// app that started it (ADR-0018, spec: "Lifecycle and adoption").
-#[cfg(unix)]
-#[derive(clap::Subcommand)]
-enum Command {
-    #[command(name = "_vnc-keeper", hide = true)]
-    VncKeeper {
-        #[arg(long)]
-        id: String,
-        #[arg(long)]
-        host: String,
-        #[arg(long)]
-        port: u16,
-    },
 }
 
 /// Where the app serves and which directories it holds VM records in.
@@ -131,9 +112,6 @@ struct Paths {
 #[cfg(unix)]
 fn main() -> ExitCode {
     let args = Args::parse();
-    if let Some(Command::VncKeeper { id, host, port }) = &args.command {
-        return run_keeper(id, host, *port);
-    }
     let paths = match (args.test_mode, args.socket, args.state_dir, args.data_dir) {
         (true, Some(socket), Some(state_dir), Some(data_dir)) => Paths {
             socket,
@@ -255,18 +233,6 @@ fn main() -> ExitCode {
     } else {
         run_menu_bar_app(runtime, listener, ctx, paths.socket)
     }
-}
-
-/// Hold one silent connection to a guest's VNC port until the port goes away. No status item,
-/// no socket and no server: the keeper is a plain process of the app's executable.
-#[cfg(unix)]
-fn run_keeper(id: &str, host: &str, port: u16) -> ExitCode {
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .expect("build the asynchronous runtime");
-    let code = runtime.block_on(testanyware_vm::keeper::run(id, host, port));
-    ExitCode::from(code as u8)
 }
 
 /// Serve until a signal or a fatal accept error. Test mode runs here.

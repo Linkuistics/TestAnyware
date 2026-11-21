@@ -342,7 +342,7 @@ fn an_older_meta_is_adopted_for_streams_and_marked_legacy() {
 }
 
 #[test]
-fn a_tart_guest_without_a_keeper_gets_no_vnc_connection() {
+fn a_tart_guest_gets_its_banner_probe() {
     let _serial = serial();
     let sandbox = Sandbox::new();
     let vm = Orphan::start();
@@ -359,8 +359,8 @@ fn a_tart_guest_without_a_keeper_gets_no_vnc_connection() {
 
     let entry = adopted(&body, "testanyware-ad05");
     assert_eq!(entry["agent"], "answering");
-    assert_eq!(entry["vnc"], "not_probed");
-    assert_eq!(vnc.accepted(), 0, "the probe connected to a VNC port that no keeper holds");
+    assert_eq!(entry["vnc"], "answering");
+    assert_eq!(vnc.accepted(), 1, "the app probes the VNC banner of a tart guest once");
 }
 
 #[test]

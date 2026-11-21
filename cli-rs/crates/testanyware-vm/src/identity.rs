@@ -49,7 +49,7 @@ pub fn read_identity(probe: &impl ProcessProbe, pid: i32) -> Option<ProcessIdent
 }
 
 /// The identity of `pid` when there is a pid to read. The meta holds an optional pid for
-/// each process that may not exist, such as the keeper of a QEMU guest.
+/// each process that may not exist, such as the swtpm of a QEMU guest without a TPM.
 pub fn read_optional_identity(
     probe: &impl ProcessProbe,
     pid: Option<i32>,

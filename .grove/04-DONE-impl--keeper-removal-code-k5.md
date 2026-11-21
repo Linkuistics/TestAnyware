@@ -92,3 +92,54 @@ specs that describe that behaviour in the same change.
   they are. The fault of issue #12 is still present on the latest host.
 - In the specs, rewrite the text that states current behaviour. Leave the
   record of a past measurement as it was measured.
+
+## Decisions (running log)
+
+- 2026-11-21, code. The keeper, its meta and record fields, `command_line`, the
+  hidden commands of the CLI and the app, and the probe gate are gone. The
+  survivor of an adoption no longer needs its meta or a process probe, so
+  `survivor` takes the id, the legacy flag and the paths only.
+- 2026-11-21, tests. `cli-contract.rs` has one test for `_vnc-keeper`, which
+  exits 2 as an unrecognised subcommand. The unit test of the app's VNC gate
+  and the two unit tests of a keeper verdict are gone. The run-level test of a
+  matching keeper beside a gone `tart run` now tests the second row alone,
+  where `tart delete` runs by name with no signal. The record test names a swtpm in place of the
+  keeper. The queue tests wait for a record that names the `tart run` with its
+  identity. The replaced record of `retry-c` names no `tart run`, because its
+  clone step waits for tart.
+- 2026-11-21, live script. `scripts/vnc-idle-live.sh` takes the bundle as its
+  argument, as `input-live.sh` does. It has no negative control, because the
+  host has no fault to show. Its instrument for a `_vnc-keeper` process first
+  finds a decoy with that command line, so a clean read is evidence.
+- 2026-11-21, specs. The two specs had five hard findings of the
+  controlled-English checker. A preparatory change fixed them. The upgrade
+  samples of 2.4.0 and 2.5.0 in the app spec now say that the guest kept each
+  of its processes. That is still what the run measured, and the keeper sweep
+  then finds no past-tense hit.
+- 2026-11-21, sweep. `grep -rniI keeper` over `cli-rs`, `scripts`,
+  `Taskfile.yml` and `docs/specs`, without `target` and `evidence`, finds only
+  hits that assert no keeper exists, and the word "Gatekeeper". The same
+  command finds 101 hits in a scratch copy of the old `keeper.rs`, and 18 in
+  ADR-0018 and the glossary. Without the filter, it finds the Gatekeeper hits.
+- 2026-11-21, suites. `task cli:test` passed 1716 tests with none failed.
+  `task app:test` passed 487, and `task app:routing-test` passed 158.
+  `task scripts:check` passed. `task vm:tart-vnc-idle-repro` passed without
+  `HOLD=1`. Both of its connections saw 1024x768, and tart did not crash.
+- 2026-11-22, live run. The first run of `task vm:vnc-idle-live` failed at
+  the agent wait with `No route to host`. The development bundle had no Local
+  Network grant. The owner allowed it, and the second run passed all three
+  checks. No `_vnc-keeper` process existed. The installed 2.9.0 app was quit
+  for the run. A failed start now prints its output.
+- 2026-11-22, first frame. The macOS guest of the live run switched to
+  1920x1080, but its first `screen size` reported 1280x720. A second guest
+  reported 1920x1080 at every read. The keeper had always been the first
+  client, so its removal can expose this stale size. The finding needs its
+  own measurement and decision. So `first-frame-size-k9`, a design leaf, now
+  sits ahead of the release leaf. The live script prints the second size too.
+- 2026-11-22, final live run. A third run used the final script and
+  Taskfile, with digests checked before and after. It passed all three
+  checks. Its first `screen size` reported 1280x720, and its second
+  1920x1080.
+- 2026-11-22, review. This session cut no `review-impl` leaf. The change
+  removes code, and the suites and the live seams test each removed path.
+  No doubt remains that needs an independent read.

@@ -12,7 +12,7 @@ use crate::health::wait_for_agent;
 #[cfg(target_os = "macos")]
 use crate::health::wait_for_agent_with_oracle;
 use crate::id::generate_id;
-use crate::identity::{read_identity, read_optional_identity, ProcessIdentity, ProcessProbe, SystemProbe};
+use crate::identity::{read_identity, ProcessIdentity, ProcessProbe, SystemProbe};
 use crate::legacy_stop::{
     find_session_dir, session_candidates, stop_through_sockets, LegacyStopProbes, SettleWait,
 };
@@ -507,11 +507,7 @@ impl VmLifecycle {
         // tart manages its own storage, so the meta carries no clone_dir;
         // `pid` is the detached `tart run` process tracked for `stop`.
         let meta = VmMeta {
-            // The keeper started in `observe_tart_boot`, before any VNC
-            // client (ADR-0018). `vm stop` signals it as a backstop.
-            keeper_pid: boot.keeper_pid,
             identity: boot.identity.clone(),
-            keeper_identity: boot.keeper_identity.clone(),
             ..VmMeta::new(opts.id.clone(), VmTool::Tart, pid)
         };
         meta.write_atomic(&meta_path).inspect_err(|_| {
@@ -748,14 +744,12 @@ impl VmLifecycle {
             });
         }
         let main = verified_pid(process, Some(meta.pid), meta.identity.as_ref());
-        let keeper = verified_pid(process, meta.keeper_pid, meta.keeper_identity.as_ref());
         let swtpm = verified_pid(process, meta.swtpm_pid, meta.swtpm_identity.as_ref());
         let stop_error = match meta.tool {
             #[cfg(target_os = "macos")]
             VmTool::Tart => {
                 // A pid of 0 skips the signal, so a gone process receives none.
                 let stopped = crate::tart::TartRunner::stop_in(tools, id, main.unwrap_or(0));
-                crate::keeper::stop_keeper(id, keeper);
                 if stopped {
                     None
                 } else {
@@ -801,10 +795,6 @@ impl VmLifecycle {
                 // detached `tart run` pid. A VM that no longer exists is a
                 // stop failure (mirrors Swift `stop`'s `ok = false`).
                 let stopped = crate::tart::TartRunner::stop_in(tools, id, meta.pid);
-                // The keeper ends itself once tart is gone (ADR-0018); this
-                // signal is the backstop, and only reaches a pid that is
-                // still this id's keeper.
-                crate::keeper::stop_keeper(id, meta.keeper_pid);
                 if stopped {
                     None
                 } else {
@@ -844,8 +834,7 @@ impl VmLifecycle {
         if meta.tool == VmTool::Qemu {
             return Self::stop_older_qemu(id, meta, paths, probes, wait);
         }
-        // A tart guest stops by name. A pid of 0 skips the signal, and the keeper, which has no
-        // identity either, ends itself once tart is gone (ADR-0018).
+        // A tart guest stops by name. A pid of 0 skips the signal.
         #[cfg(target_os = "macos")]
         let stop_error = if crate::tart::TartRunner::stop_in(tools, id, 0) {
             None
@@ -1142,12 +1131,8 @@ impl StopSignals {
 struct StartTrack {
     /// The `tart run` that is running, or 0.
     pid: std::sync::atomic::AtomicI32,
-    /// The VNC keeper once it started, or 0.
-    keeper_pid: std::sync::atomic::AtomicI32,
     /// The identity of the `tart run` that is running, read when it started.
     identity: std::sync::Mutex<Option<ProcessIdentity>>,
-    /// The identity of the keeper, read when it started.
-    keeper_identity: std::sync::Mutex<Option<ProcessIdentity>>,
 }
 
 #[cfg(target_os = "macos")]
@@ -1156,21 +1141,13 @@ impl StartTrack {
         self.pid.load(std::sync::atomic::Ordering::SeqCst)
     }
 
-    fn keeper_pid(&self) -> Option<i32> {
-        Some(self.keeper_pid.load(std::sync::atomic::Ordering::SeqCst)).filter(|pid| *pid > 0)
-    }
-
     fn identity(&self) -> Option<ProcessIdentity> {
         self.identity.lock().ok().and_then(|identity| identity.clone())
-    }
-
-    fn keeper_identity(&self) -> Option<ProcessIdentity> {
-        self.keeper_identity.lock().ok().and_then(|identity| identity.clone())
     }
 }
 
 /// Clean up a tart start that the client left, as after a failed start without
-/// `--keep-on-failure`: nobody can reclaim a kept VM, so the VM, its keeper and its sidecars go.
+/// `--keep-on-failure`: nobody can reclaim a kept VM, so the VM and its sidecars go.
 ///
 /// The cleanup is the teardown of a failed start: when the VM survives it, the meta is written
 /// so that `vm stop` can retry, and the sidecars are not dropped. The scratch directory of the
@@ -1181,9 +1158,7 @@ fn abandon_tart(opts: &VmStartOptions, ctx: &StartContext, track: &StartTrack) -
     let vm = FailedVm {
         id: opts.id.clone(),
         meta: VmMeta {
-            keeper_pid: track.keeper_pid(),
             identity: track.identity(),
-            keeper_identity: track.keeper_identity(),
             ..VmMeta::new(opts.id.clone(), VmTool::Tart, track.pid())
         },
         spec: None,
@@ -1196,7 +1171,6 @@ fn abandon_tart(opts: &VmStartOptions, ctx: &StartContext, track: &StartTrack) -
         Disposition::Teardown,
         || {
             TartRunner::stop_in(&ctx.tools, &opts.id, track.pid());
-            crate::keeper::stop_keeper(&opts.id, track.keeper_pid());
         },
         || crate::tart::vm_exists_in(&ctx.tools, &opts.id),
     );
@@ -1223,12 +1197,8 @@ struct TartBoot {
     observation: BootObservation,
     vnc: Option<crate::tart::VncUrl>,
     ip: Option<String>,
-    /// Pid of the VNC keeper (ADR-0018), or `None` if it could not start.
-    keeper_pid: Option<i32>,
     /// The identity of `tart run`, read as soon as it started.
     identity: Option<ProcessIdentity>,
-    /// The identity of the keeper, read as soon as it started.
-    keeper_identity: Option<ProcessIdentity>,
 }
 
 /// Run the readiness stages in order — VNC URL, guest IP, agent health —
@@ -1266,8 +1236,6 @@ async fn observe_tart_boot(
     };
     let mut vnc = None;
     let mut ip = None;
-    let mut keeper_pid = None;
-    let mut keeper_identity = None;
 
     let stage_start = Instant::now();
     match await_vnc_url(log_path, VNC_POLLS.0, VNC_POLLS.1, alive).await {
@@ -1278,26 +1246,6 @@ async fn observe_tart_boot(
             if let Some(hold) = hold {
                 hold.accepted();
             }
-            // Hold one silent VNC connection for the life of tart (ADR-0018),
-            // so a client that connects after a pause of 60 s or more cannot
-            // crash it on a macOS 27 host. Start it as soon as tart prints the
-            // URL, before the first VNC client of any kind. A failure warns;
-            // the guest then runs without the protection.
-            keeper_pid = crate::keeper::start_keeper(
-                &opts.id,
-                &url.host,
-                url.port,
-                &ctx.paths.vms_dir(),
-                &ctx.progress,
-            );
-            track.keeper_pid.store(keeper_pid.unwrap_or(0), std::sync::atomic::Ordering::SeqCst);
-            keeper_identity = read_optional_identity(&SystemProbe, keeper_pid);
-            *track.keeper_identity.lock().unwrap_or_else(|e| e.into_inner()) =
-                keeper_identity.clone();
-            record_processes(ctx, &opts.id, |record| {
-                record.keeper = keeper_pid
-                    .map(|pid| RecordedProcess { pid, identity: keeper_identity.clone() });
-            });
             vnc = Some(url);
         }
         Polled::ProcessExited => {}
@@ -1338,7 +1286,7 @@ async fn observe_tart_boot(
     if !child_alive(pid) {
         observation.process = ProcessState::Exited { log_tail: read_log_tail(log_path) };
     }
-    TartBoot { observation, vnc, ip, keeper_pid, identity, keeper_identity }
+    TartBoot { observation, vnc, ip, identity }
 }
 
 /// Wait for a launched QEMU's agent and record what was seen. The VNC and
@@ -1426,10 +1374,7 @@ fn tart_failed_vm(opts: &VmStartOptions, agent_port: u16, pid: i32, boot: &TartB
     FailedVm {
         id: opts.id.clone(),
         meta: VmMeta {
-            // A kept VM keeps its keeper; `vm stop` signals it later.
-            keeper_pid: boot.keeper_pid,
             identity: boot.identity.clone(),
-            keeper_identity: boot.keeper_identity.clone(),
             ..VmMeta::new(opts.id.clone(), VmTool::Tart, pid)
         },
         spec: boot.vnc.as_ref().map(|vnc| VmSpec {
@@ -2074,9 +2019,7 @@ mod tests {
             pid: 0,
             clone_dir: None,
             viewer_window_id: None,
-            keeper_pid: None,
             identity: None,
-            keeper_identity: None,
             swtpm_pid: None,
             swtpm_identity: None,
             session_dir: None,
@@ -2205,9 +2148,7 @@ mod tests {
                     pid: 4242,
                     clone_dir: None,
                     viewer_window_id: None,
-                    keeper_pid: None,
                     identity: None,
-                    keeper_identity: None,
                     swtpm_pid: None,
                     swtpm_identity: None,
                     session_dir: None,
@@ -2364,9 +2305,7 @@ mod tests {
                     password: Some("pw".into()),
                 }),
                 ip: Some("192.168.64.9".into()),
-                keeper_pid: None,
                 identity: None,
-                keeper_identity: None,
             };
             let failed = tart_failed_vm(&opts, crate::start_context::AGENT_PORT, 4242, &boot);
             assert_eq!(failed.meta.tool, VmTool::Tart);
@@ -2525,7 +2464,6 @@ mod tests {
             assert_eq!((meta.pid, meta.identity.clone()), (31337, Some(identity(100))));
             assert_eq!((meta.swtpm_pid, meta.swtpm_identity.clone()), (Some(31338), Some(identity(101))));
             assert_eq!(meta.session_dir, Some(art.session_dir.display().to_string()));
-            assert_eq!((meta.keeper_pid, meta.keeper_identity), (None, None));
             // A VM that `vm stop` keeps after a failed start carries the same record.
             assert_eq!(qemu_failed_vm(&opts(true), &art).meta, qemu_meta(&opts(true), &art));
         }

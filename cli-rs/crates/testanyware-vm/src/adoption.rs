@@ -5,9 +5,9 @@
 //! guards every signal: a process receives a signal only when its pid, its start time and the
 //! boot session all match what the meta recorded (spec: "Lifecycle and adoption").
 //!
-//! The decision looks at the main process only, because that process is the VM. The keeper and
-//! swtpm are checked again, one by one, at the moment of a signal. So a decision made earlier
-//! never authorises a signal.
+//! The decision looks at the main process only, because that process is the VM. The swtpm is
+//! checked again at the moment of a signal. So a decision made earlier never authorises a
+//! signal.
 
 use serde_json::{json, Value};
 

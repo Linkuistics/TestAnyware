@@ -14,9 +14,9 @@ use std::time::Duration;
 use testanyware_app_protocol::{
     AdoptedVm, AdoptionStatus, NotAdoptedVm, ProbeAnswer, StreamKind, UnfinishedStart,
 };
-use testanyware_vm::adoption::{check_process, decide, Adoption, ProcessCheck};
+use testanyware_vm::adoption::{decide, Adoption};
 use testanyware_vm::identity::{ProcessProbe, SystemProbe};
-use testanyware_vm::meta::{VmMeta, VmTool};
+use testanyware_vm::meta::VmMeta;
 use testanyware_vm::spec::VmSpec;
 use testanyware_vm::VmPaths;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -84,10 +84,6 @@ pub struct Survivor {
     pub legacy: bool,
     pub agent: Option<GuestEndpoint>,
     pub vnc: Option<GuestEndpoint>,
-    /// May the app connect to the VNC port to read the banner? A tart guest that no keeper holds
-    /// must not get that connection: the VNC server of macOS 27 aborts tart when a client
-    /// connects 60 s or more after the last one left (ADR-0018).
-    pub vnc_probe_allowed: bool,
 }
 
 /// What the app found in the state directory.
@@ -114,8 +110,8 @@ pub fn scan(paths: &VmPaths, probe: &impl ProcessProbe) -> Scan {
             }
         };
         match decide(&meta, probe) {
-            Adoption::Adopt => scan.survivors.push(survivor(&id, &meta, false, paths, probe)),
-            Adoption::Legacy => scan.survivors.push(survivor(&id, &meta, true, paths, probe)),
+            Adoption::Adopt => scan.survivors.push(survivor(&id, false, paths)),
+            Adoption::Legacy => scan.survivors.push(survivor(&id, true, paths)),
             Adoption::Stopped => scan.not_adopted.push(NotAdoptedVm {
                 id,
                 reason: "process_gone".to_string(),
@@ -153,13 +149,7 @@ pub(crate) fn meta_ids(paths: &VmPaths) -> Vec<String> {
     ids
 }
 
-fn survivor(
-    id: &str,
-    meta: &VmMeta,
-    legacy: bool,
-    paths: &VmPaths,
-    probe: &impl ProcessProbe,
-) -> Survivor {
+fn survivor(id: &str, legacy: bool, paths: &VmPaths) -> Survivor {
     let spec = VmSpec::load(&paths.spec_path(id)).ok();
     let vnc = spec.as_ref().map(|s| GuestEndpoint {
         host: s.vnc.host.clone(),
@@ -176,19 +166,6 @@ fn survivor(
         legacy,
         agent,
         vnc,
-        vnc_probe_allowed: meta.tool != VmTool::Tart || keeper_holds_vnc(id, meta, probe),
-    }
-}
-
-/// Does a live VNC keeper of this VM hold a connection to the guest's VNC port?
-fn keeper_holds_vnc(id: &str, meta: &VmMeta, probe: &impl ProcessProbe) -> bool {
-    match (meta.keeper_pid, meta.keeper_identity.as_ref()) {
-        (Some(pid), Some(recorded)) => check_process(probe, pid, recorded) == ProcessCheck::Match,
-        // A keeper of an older start has no identity. Its command line shows that the pid is
-        // still a keeper of this VM. This reads and signals nothing.
-        (Some(pid), None) => testanyware_vm::process::command_line(pid)
-            .is_some_and(|line| testanyware_vm::keeper::is_keeper_command_line(&line, id)),
-        (None, _) => false,
     }
 }
 
@@ -212,7 +189,7 @@ pub async fn probe_agent(
 }
 
 /// Probe the VNC port: connect and read the protocol banner, then close. The app reads the whole
-/// banner and sends nothing, so its close leaves no unread data to turn into an RST (ADR-0018).
+/// banner and sends nothing, because the banner is the answer.
 pub async fn probe_vnc_banner(
     ctx: &AppContext,
     endpoint: &GuestEndpoint,
@@ -257,7 +234,7 @@ pub async fn run_scanned(ctx: &Arc<AppContext>, scanned: Scan, deadline: Duratio
         } else {
             ProbeAnswer::NotProbed
         },
-        vnc: if survivor.vnc.is_some() && survivor.vnc_probe_allowed {
+        vnc: if survivor.vnc.is_some() {
             ProbeAnswer::Pending
         } else {
             ProbeAnswer::NotProbed
@@ -273,11 +250,11 @@ pub async fn run_scanned(ctx: &Arc<AppContext>, scanned: Scan, deadline: Duratio
     let mut tasks = Vec::new();
     for survivor in scanned.survivors {
         for kind in [StreamKind::Agent, StreamKind::Vnc] {
-            let (endpoint, allowed) = match kind {
-                StreamKind::Agent => (survivor.agent.clone(), true),
-                StreamKind::Vnc => (survivor.vnc.clone(), survivor.vnc_probe_allowed),
+            let endpoint = match kind {
+                StreamKind::Agent => survivor.agent.clone(),
+                StreamKind::Vnc => survivor.vnc.clone(),
             };
-            let Some(endpoint) = endpoint.filter(|_| allowed) else {
+            let Some(endpoint) = endpoint else {
                 continue;
             };
             let ctx = Arc::clone(ctx);
@@ -309,6 +286,7 @@ mod tests {
     use super::*;
     use testanyware_vm::identity::ProcessIdentity;
     use testanyware_vm::spec::{AgentEndpoint, VncEndpoint};
+    use testanyware_vm::meta::VmTool;
 
     /// Processes by pid: a start time each. The boot session is fixed.
     struct Host(std::collections::HashMap<i32, u64>);
@@ -399,41 +377,5 @@ mod tests {
     fn a_directory_with_no_vms_gives_an_empty_scan() {
         let dir = tempfile::tempdir().unwrap();
         assert_eq!(scan(&paths(dir.path()), &Host(Default::default())), Scan::default());
-    }
-
-    #[test]
-    fn a_tart_guest_without_a_live_keeper_gets_no_vnc_probe() {
-        let dir = tempfile::tempdir().unwrap();
-        let paths = paths(dir.path());
-        let mut with_keeper = meta("t-keeper", VmTool::Tart, 20, Some(identity(1)));
-        with_keeper.keeper_pid = Some(21);
-        with_keeper.keeper_identity = Some(identity(2));
-        let mut dead_keeper = meta("t-dead", VmTool::Tart, 22, Some(identity(1)));
-        dead_keeper.keeper_pid = Some(23);
-        dead_keeper.keeper_identity = Some(identity(3));
-        let no_keeper = meta("t-none", VmTool::Tart, 24, Some(identity(1)));
-        // A QEMU guest has no keeper, and its VNC server has no such fault.
-        let qemu = meta("q", VmTool::Qemu, 25, Some(identity(1)));
-        for m in [with_keeper, dead_keeper, no_keeper, qemu] {
-            write_vm(&paths, m, Some(8648));
-        }
-        // pid 23 runs, but started at another time than the keeper's record says.
-        let host = Host([(20, 1), (21, 2), (22, 1), (23, 77), (24, 1), (25, 1)].into());
-
-        let allowed: Vec<_> = scan(&paths, &host)
-            .survivors
-            .iter()
-            .map(|s| (s.id.clone(), s.vnc_probe_allowed))
-            .collect();
-
-        assert_eq!(
-            allowed,
-            [
-                ("q".to_string(), true),
-                ("t-dead".to_string(), false),
-                ("t-keeper".to_string(), true),
-                ("t-none".to_string(), false),
-            ]
-        );
     }
 }
