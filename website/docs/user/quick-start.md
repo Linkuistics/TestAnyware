@@ -12,8 +12,8 @@ Get from a fresh clone to your first screenshot in about 15 minutes.
 - Xcode 16+ (`swift --version` should report 6.0+)
 - `tart` — `brew install cirruslabs/cli/tart`
 
-That's enough to run macOS VMs. Linux VMs need the same tools; Windows
-VMs additionally need `qemu`, `swtpm`, and .NET 9 — see the
+That's enough to run macOS VMs. Linux VMs need the same tools. Windows
+VMs also need `qemu`, `swtpm`, and .NET 9. See the
 [full requirements in `README.md`](../../README.md#requirements).
 
 ## 1. Build the CLI

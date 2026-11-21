@@ -416,7 +416,7 @@ testanyware screenshot -o screen.png
 provisioner/scripts/vm-stop.sh "$vmid"
 ```
 
-Multiple VMs can run concurrently — each gets its own id and its own spec
+Multiple VMs can run concurrently — each has its own id and its own spec
 file. Use `--vm <id>` (or per-shell `TESTANYWARE_VM_ID`) to target a specific one.
 
 ### Storage locations

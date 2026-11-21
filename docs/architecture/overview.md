@@ -77,16 +77,16 @@ channels.
 
 - **The macOS agent is self-contained.** It vendors its own copy of the
   `TestAnywareAgentProtocol` source tree rather than path-depending on
-  the host CLI package. The agent ships separately as a VM binary;
-  keeping its source self-contained means it can be built in any
-  working copy without the host CLI present. Both sides must agree on
+  the host CLI package. The agent ships separately as a VM binary.
+  Because its source is self-contained, any working copy can build it
+  without the host CLI present. Both sides must agree on
   the wire shape — see `docs/architecture/agent-protocol.md`.
 - **Windows agent is cross-built from macOS.**
   `dotnet build -r win-arm64 --no-self-contained` on the host produces
   the ARM64 Windows binary that ships inside the golden image's
   autounattend payload.
-- **No cli/linux or cli/windows.** The CLI package is flat. Linux host
-  support is planned via a Rust port — see
+- **No cli/linux or cli/windows.** The CLI package is flat. The plan
+  adds Linux host support through a Rust port. See
   `LLM_STATE/core/decisions.md`.
 
 ## What the two channels do and don't do
@@ -96,10 +96,10 @@ for raw keyboard/mouse input. It knows nothing about windows, apps, or
 accessibility.
 
 The agent channel is the **only** source of semantic structure. It
-speaks in windows, roles, and labels; it cannot capture pixels or
-synthesize raw input. (It does run `exec` and file transfer, which
-conceptually belong to neither channel but were placed with the agent
-to keep the VNC channel strictly RFB.)
+speaks in windows, roles, and labels. It cannot capture pixels or
+synthesise raw input. It does run `exec` and file transfer. These
+belong to neither channel, but the design put them in the agent to keep
+the VNC channel strictly RFB.
 
 This split lets the CLI degrade gracefully: without an agent, you still
 have screenshots, video, OCR (via `find-text`), and every keyboard/mouse
