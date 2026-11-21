@@ -1,6 +1,8 @@
 # tart drops VNC input that a reset follows at once, on a macOS 27 host
 
-**Status:** measured on 2026-10-26 by leaf `input-live-k2` of the issue #12 grove.
+**Status:** measured on 2026-10-26 by leaf `input-live-k2` of the issue #12 grove. Measured
+again on 2026-11-21 by leaf `keeper-removal-k2` of the issue #13 grove, on macOS 27.2.1. The fault
+is still present.
 
 **Audience:** whoever fixes the fault of GitHub issue 12 (`input-delivery-k3`), and the human
 who decides what to file upstream.
@@ -47,7 +49,8 @@ authentication. It connects to the loopback endpoint that tart serves. That endp
 `vnc` object of the connection spec. The client sends the events of one command. Then it closes
 in the way that its option names.
 
-It uses no TestAnyware code. The VNC keeper (ADR-0018) held its usual connection throughout.
+It uses no TestAnyware code. The VNC keeper of the development bundle held its usual
+connection throughout.
 
 Each row is one command to one guest. `row-20` started each group at the y that the previous
 row left, and each wheel command is five wheel steps of 10 points.
@@ -121,6 +124,29 @@ incremental, and it waits for the update. The app keeps the reset of 2.5.0 and g
 
 The runs did not show that tart sends an update that we did not ask for. Such an update would
 end the wait early. The live check passed in one run, so it gives no rate.
+
+## Measured again on macOS 27.2.1
+
+macOS 27.2.1 removed the idle fault of `docs/research/tart-vnc-reconnect-crash-macos-27.md`.
+This run asked whether it removed this fault too. The host ran macOS 27.2.1 (26B131) with tart
+2.42.0, the latest release. The installed 2.9.0 app and CLI took part.
+
+`task input:live` passed on 2.9.0, with the fix of `input-delivery-k3`. Its guest stayed, and
+the run then killed the guest's VNC keeper. So no other client held a connection. Each row below
+is one command of the control with `--like-cli`, and `row-20` started at y=759.
+
+| Close | Gap between events | Result |
+|---|---|---|
+| ordinary | none, one write (`--burst`) | `row-20` moved 50 points |
+| reset | none, one write | Moved 0 of 50 |
+| reset | none, one write, the other direction | Moved 0 of 50 |
+| reset | none, one write | Moved 0 of 50 |
+| ordinary | none, one write, the other direction | Moved 50 |
+
+The burst with a reset failed in 3 of 3 runs, as on 27.0. The ordinary close before and after
+shows that the instrument sees a scroll. So the fault is still present on the latest host, and
+the fix stays. ADR-0018 records that decision under the host requirement. tart survived each
+reset and each next connection.
 
 ## Not measured
 

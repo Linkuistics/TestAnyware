@@ -38,7 +38,8 @@ of the release leaf, which comes last.
 
 ## Pointers
 
-- ADRs: `docs/adr/0018-tart-guests-get-a-vnc-keeper.md` for the keeper, and
+- ADRs: `docs/adr/0018-a-macos-host-runs-the-latest-macos-27-and-tart.md`
+  for the host requirement and the removal of the keeper, and
   `docs/adr/0004-each-command-opens-its-own-guest-connections.md` for why
   each command opens its own connection.
 - Research: `docs/research/tart-vnc-reconnect-crash-macos-27.md` for the idle
@@ -47,10 +48,12 @@ of the release leaf, which comes last.
 - Glossary terms: VNC keeper, Base VM, Golden image, TestAnyware app and
   Host-side framebuffer, in `CONTEXT.md`.
 - Test seams, agreed with the owner on 2026-11-21:
-  - Keeper removal, live: `task vm:vnc-keeper-live` in a new form. A macOS
-    guest that `vm start` starts stays alive through 5 minutes with no VNC
-    client, and a Linux guest through 70 seconds. A `screen` command then
-    works, and no `_vnc-keeper` process exists.
+  - Keeper removal, live: `task vm:vnc-keeper-live` in a new form, renamed
+    `task vm:vnc-idle-live` by `keeper-removal-k2`. A macOS guest that
+    `vm start` starts takes two `screen` commands 5 s apart. It then stays
+    alive through 5 minutes with no VNC client, and a Linux guest through 70
+    seconds. A `screen` command then works, and no `_vnc-keeper` process
+    exists.
   - The fix of Apple alone: `task vm:tart-vnc-idle-repro`, unchanged, passes
     without `HOLD=1`.
   - Code: the existing suites without keeper cases. `cli-contract.rs` shows
@@ -79,5 +82,6 @@ of the release leaf, which comes last.
   removed the idle fault.
 - Each GitHub comment needs the approval of the owner for its exact text
   before a session posts it.
-- On 2026-11-21, after the macOS upgrade, the TestAnyware app did not run. A
-  live task through `vm start` needs it.
+- On 2026-11-21, after the macOS upgrade, the TestAnyware app did not run at
+  first. Later that day it answered at 2.9.0. A live task through `vm start`
+  needs it.

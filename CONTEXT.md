@@ -27,6 +27,13 @@ The Rust implementation of the host CLI under `cli-rs/`, structured as a
 Cargo workspace (`testanyware-cli` binary + supporting crates). Since
 2026-06-03 it *is* the host CLI — no longer a replacement-in-progress.
 
+**Host requirement** (macOS host):
+The releases that a macOS host runs for TestAnyware: the latest release of
+macOS 27 and the latest release of tart. It covers the host only. A guest runs
+the release that its *Golden image* holds (ADR-0018).
+_Avoid_: "minimum version". The requirement names the latest release, not a
+floor.
+
 **Command surface**:
 The set of user-visible `testanyware <command>` invocations, plus any
 hidden/internal subcommands. The canonical list lives in
@@ -334,17 +341,15 @@ ADR-0004 owns the retirement.
 _Avoid_: "the server" (ambiguous — agents and the OCR daemon are also servers),
 conflating it with `OcrChildBridge`.
 
-**VNC keeper**:
-The detached `testanyware _vnc-keeper` process that holds one bare TCP
-connection to a tart guest's [[Host-side framebuffer]] (ADR-0018). It lives as
-long as the guest and sends nothing. Each tart-backed `vm start` starts one, because on
-a macOS 27 host Apple's `_VZVNCServer` aborts tart when a client connects 60
-seconds after the last one left.
-
-The keeper ends itself when tart goes away. `vm stop` signals it only as a
-backstop.
-_Avoid_: "VNC server" or "Shared-VNC server". The keeper is a client, carries no
-traffic, and nothing attaches to it.
+**VNC keeper** (historical):
+The detached `_vnc-keeper` process that held one bare TCP connection to a tart
+guest's [[Host-side framebuffer]] for the life of the guest. Releases 2.2.0 to
+2.9.0 started one in each tart-backed `vm start`, against a fault of macOS
+27.0.1. The *Host requirement* excludes that fault, so TestAnyware has no keeper
+now (ADR-0018).
+The term survives only because ADRs, research notes and issues reference it.
+_Avoid_: present-tense framing, and "VNC server" or "Shared-VNC server" for a
+client that carried no traffic.
 
 **OCR daemon**:
 The long-lived Python child process (`OcrChildBridge` in

@@ -75,9 +75,8 @@ bytes unchanged.**
   connection as a guest stream through the Host CLI's library. A forward in such
   a test accepts on the host and opens a guest stream for each connection.
 - Nothing multiplexes two commands onto one guest connection, and no command
-  attaches to a connection that another one holds. The VNC keeper (ADR-0018)
-  holds one silent connection, and it carries no traffic. The app starts the
-  keeper from its own executable.
+  attaches to a connection that another one holds. No process holds a guest
+  connection between two commands (ADR-0018).
 - On a Linux or Windows host, and in golden creation, each connection is a
   direct TCP connection, as before. Golden creation is the one traffic on a
   macOS host that the app does not carry.
@@ -95,7 +94,8 @@ still pays one RFB handshake.
   every host.
 - **One multiplexed connection for each guest, as the Shared-VNC server had.**
   Rejected for the failures in the survey above. The VNC crash that a held
-  connection prevents already has the keeper.
+  connection once prevented does not occur on a host that meets the host
+  requirement (ADR-0018).
 - **A loopback TCP forward for each VM.** Rejected. A TCP listener on loopback
   gives the app no peer credentials on macOS, and the survey's CVEs came from
   such listeners. A Unix socket with a peer uid check held up best.

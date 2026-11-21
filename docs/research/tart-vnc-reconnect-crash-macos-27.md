@@ -1,13 +1,16 @@
 # tart crashes when a VNC client connects after the server sat idle on macOS 27
 
 **Status:** isolated and measured, 2026-10-18 to 2026-10-19. Found by leaf `checks-27-k16`
-and isolated by leaf `vnc-reconnect-crash-27-k17` of the issue #6 grove.
+and isolated by leaf `vnc-reconnect-crash-27-k17` of the issue #6 grove. Measured again on
+2026-11-21 by leaves `plan-k1` and `keeper-removal-k2` of the issue #13 grove, on macOS 27.2.1.
 
-**Audience:** the human who decides what to file upstream, and whoever builds a mitigation.
+**Audience:** whoever meets this fault on a macOS host, and whoever decides whether
+TestAnyware needs a mitigation again.
 
-**Bottom line:** on a macOS 27 host, Apple's `_VZVNCServer` aborts the tart process when a
+**Bottom line:** on macOS 27.0.1, Apple's `_VZVNCServer` aborts the tart process when a
 client connects after no client was connected for 60 seconds. The VM stops with it. One open
 connection prevents it. A macOS 26 guest and a Linux guest crash the same way, so the fault is in the host.
+macOS 27.2.1 (26B131) removed the fault. On that release, neither trigger crashed tart.
 
 ## What happens
 
@@ -81,6 +84,31 @@ Recovery driving keeps one connection for the whole recovery boot (`recovery.rs`
 I found no other VNC client in the build code. This is a reading of the code and not a test.
 Three of the crash reports are from 16 October and predate this grove. Their cause is not known.
 
+## Measured again on macOS 27.2.1
+
+On 2026-11-21 the host ran macOS 27.2.1 (26B131), and the installed tart was 2.42.0, the latest
+release. No run had a holder. The reset rows used `scripts/tart-vnc-input-control.py` for the
+handshake: a client asked for a full frame, waited one second, and closed with the update
+unread. A peek before each close counted the unread bytes, so each close sent a reset.
+
+| Run | Gap or rounds | Result |
+|---|---|---|
+| `task vm:tart-vnc-idle-repro`, tart 2.42.0 | 70 s | Connects. tart runs |
+| The same | 300 s | Connects. tart runs |
+| The same with the tart 2.40.1 release | 70 s | Connects. tart runs |
+| Unread update, reset, a new connection after 5 s, on a guest that `vm start` started, with its keeper killed | 3 rounds, 96,544 bytes unread each | All connect. tart runs |
+| The same on a fresh clone that `tart run` started | 3 rounds, 49,241 bytes unread each | All connect. tart runs |
+| The real CLI through the TestAnyware app, no keeper: `screen size`, 5 s, `screen size`, 75 s, `screen size` | One sequence | All work. tart runs |
+
+The digest of the tart 2.40.1 release matched the SHA-256 that GitHub publishes. Its signature
+named the same Cirrus Labs team as the installed tart. That release crashed in every
+tested run on 27.0.1, and it passed here. So macOS removed the fault, not tart.
+
+The crash-report folder held no tart report before or after the runs, so its silence only
+corroborates the result. The count of runs is small. On 27.0.1, the reset crashed tart on six of
+seven clones, and here it crashed none of six. The app resets each guest connection when its
+client leaves, so the last row also passed the reset trigger through the product.
+
 ## Crash reports
 
 Nine reports exist in `~/Library/Logs/DiagnosticReports/`, named `tart-2026-10-16-{190809,191053,204721}`,
@@ -102,14 +130,15 @@ thread queue: com.apple.virtualization.vzvirtualmachine-accessor-manager
 - The cause. One reading fits the evidence and is not proven. The server removes its VM accessor
   60 seconds after the last client leaves, or at once after an error. A client that arrives later
   adds the accessor again, and the assertion fires.
-- Whether a macOS 27 point release fixes it. Nobody tested one.
+- Which point release first fixed it. 27.2.1 does not have the fault. Nobody tested a release
+  between 27.0.1 and 27.2.1.
 - Whether a macOS 26 host crashes. Nobody tested one.
 - Why the three reports from 16 October exist.
 
 ## Effect on TestAnyware
 
-Any macOS guest loses its VM when a `screen` or `input` command follows 60 seconds with no
-VNC client. This affects every long agent session on a macOS 27 host. Windows guests run under
+On a host with the fault, any macOS guest loses its VM when a `screen` or `input` command
+follows 60 seconds with no VNC client. This affects every long agent session on such a host. Windows guests run under
 QEMU, which has its own VNC server, so they are not affected. A Linux guest runs under tart with
 the same flag and crashes the same way.
 `vm start` makes its VNC calls within seconds, so it did not crash in these runs.
@@ -120,28 +149,29 @@ a later one sees 1024x768. One `screen capture` on a first connection failed wit
 
 ## Workaround and mitigation
 
-**For a guest that `vm start` did not start:** keep one VNC connection open for as long as the guest runs. The command
-`tail -f /dev/null | nc <vnc-host> <vnc-port>` does it. The user guide has the steps:
-`docs/user/troubleshooting.md`. The same recipe in the Taskfile checks the host:
-`task vm:tart-vnc-idle-repro` shows the crash, and `task vm:tart-vnc-idle-repro HOLD=1`
-shows the fix.
+**On a host with the fault:** one open VNC connection prevents the crash. A bare TCP connection
+that sends nothing is enough. `task vm:tart-vnc-idle-repro` checks a host, and
+`task vm:tart-vnc-idle-repro HOLD=1` shows that a held connection prevents the crash.
 
-**In the product:** ADR-0018 decides it, and `vm start` now does it. Each tart-backed `vm start` starts a VNC keeper.
-The keeper is a detached process that holds one bare TCP connection for the life of the guest.
-The manual recipe above applies only to a tart guest that `vm start` did not start.
+**In the product:** from 2.2.0 to 2.9.0, each tart-backed `vm start` started a VNC keeper. The
+keeper was a detached process that held one bare TCP connection for the life of the guest.
+TestAnyware now carries no mitigation. ADR-0018 requires the latest release of macOS 27 and of
+tart on a macOS host, and that host does not have the fault.
 
 ## Where the findings landed
 
-ADR-0018 (`docs/adr/0018-tart-guests-get-a-vnc-keeper.md`) uses these findings:
+ADR-0018 (`docs/adr/0018-a-macos-host-runs-the-latest-macos-27-and-tart.md`) uses these findings:
 
-- The 60-second gap and the bare TCP holder are the reason for the keeper and its form.
-- The RST finding is why the keeper reads and discards all that the server sends.
-- The shared sessions are why the keeper cannot disturb the viewer, `screen record` or a command.
-- The reading of the golden-creation code is why golden creation gets no keeper.
-- The untested macOS 26 host is why the keeper runs on every host, with no version gate.
-- The re-run on 2026-10-19 (macOS 27.0.1, tart 2.40.1, 70-second gap) crashed tart again.
+- The 60-second gap and the bare TCP holder are the history of the keeper.
+- The measurements on macOS 27.2.1 are the reason for the host requirement. They are also the
+  reason to remove the keeper and the app's VNC probe gate.
+- The reset rows on 27.2.1 show that the app can reset a guest connection with no holder.
+- The idle reproduction stays the instrument. A later release that fails it reopens ADR-0018.
 
 ## Draft report for Apple (Feedback Assistant) and Cirrus Labs (tart)
+
+macOS 27.2.1 removed the fault, so this report needs no filing. It stays as the record of the
+signature of the fault, in case a later release brings it back.
 
 **Title:** `_VZVNCServer` asserts in `-[_VZVirtualMachineAccessor addAccessorObserver:]`
 when a client connects 60 seconds after the last client left (macOS 27.0.1, tart 2.40.1)
