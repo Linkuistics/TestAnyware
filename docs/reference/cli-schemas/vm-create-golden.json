@@ -33,7 +33,16 @@
         "older": { "type": "array", "items": { "type": "string" }, "description": "The other base VMs of the major. The run deletes them when the base is ready." }
       }
     },
-    "golden_exists": { "type": "boolean", "description": "macOS --dry-run only: whether a golden of this name exists. The run replaces it when the new golden is ready." },
+    "image": {
+      "type": "object",
+      "description": "linux --dry-run only: the Cirrus Labs image that the setup VM clones (ADR-0027).",
+      "required": ["name", "pull"],
+      "properties": {
+        "name": { "type": "string", "description": "The image reference, for example ghcr.io/cirruslabs/ubuntu:24.04." },
+        "pull": { "type": "boolean", "description": "Always true: the run pulls the image before the clone, so the build starts from the current image of the tag." }
+      }
+    },
+    "golden_exists": { "type": "boolean", "description": "macOS and linux --dry-run only: whether a golden of this name exists. The run replaces it when the new golden is ready." },
     "created": { "type": "boolean", "description": "Present and true on a successful (non-dry-run) golden creation." },
     "boot_plan": {
       "type": "array",

@@ -8,18 +8,20 @@
 //! whole flow is two *normal* boots over the [`SshSession`](crate::ssh) seam
 //! (ADR-0007):
 //!
-//!   1. **Boot 1 — provision** (this module): `tart clone` a vanilla Cirrus Labs
-//!      Ubuntu image into a throwaway *setup VM*, boot it, install the host
+//!   1. **Boot 1 — provision** (this module): `tart pull` the vanilla Cirrus Labs
+//!      Ubuntu image, so the build starts from the current image of its tag
+//!      (ADR-0027), `tart clone` it into a throwaway *setup VM*, boot it, install the host
 //!      pubkey, then drive the whole desktop+agent provisioning over SSH —
 //!      Ubuntu Desktop (minimal), NetworkManager via netplan, Firefox, GDM
-//!      autologin forced to X11, a solid-gray locked-down desktop, full system
-//!      updates, silent boot, and the `testanyware_agent` Python package as a
+//!      autologin forced to X11, a solid-gray locked-down desktop, every pending
+//!      update (`apt-get full-upgrade`), silent boot, and the `testanyware_agent` Python package as a
 //!      systemd **user** service with AT-SPI2 enabled.
 //!   2. **Boot 2 — apply + finalize**: reboot so GDM autologins and the agent
 //!      service starts ([`crate::recovery::reboot_and_wait_ssh`]), gate on the
 //!      agent's `/health` reporting `accessible: true`, disable+mask sshd (clones
 //!      need no SSH — the agent's HTTP surface is the only ingress), clean
-//!      shutdown, and `tart clone` to the golden.
+//!      shutdown, and `tart clone` to the golden. An earlier golden of the same
+//!      name goes just before that clone, so a failed build keeps it (ADR-0027).
 //!
 //! **Reuse, not duplication.** ADR-0007 made the `russh` provisioning seam and
 //! the [`crate::golden`] host-side helpers (`resolve_ssh_key`, `exec_checked`,
@@ -39,7 +41,9 @@
 //! load-bearing: package installs and config writes the golden cannot work
 //! without are **fatal** (`exec_checked`); cosmetic / best-effort steps the
 //! script guards with `|| true` are **tolerant** (`exec_tolerant`). The
-//! authoritative gate remains the post-reboot agent-health check.
+//! authoritative gate remains the post-reboot agent-health check. The system
+//! update is fatal, unlike the script: a golden holds every update of its
+//! release (ADR-0027).
 //!
 //! ## Progress narration
 //!
@@ -60,7 +64,7 @@ use crate::golden::{
 use crate::id::generate_id;
 use crate::paths::VmPaths;
 use crate::recovery::{reboot_and_wait_ssh, wait_for_pid_exit};
-use crate::ssh::SshSession;
+use crate::ssh::{ExecOutput, SshSession};
 
 // ---- constants ----------------------------------------------------------
 
@@ -99,7 +103,26 @@ const MIN_ROOT_FS_BYTES: u64 = 40_000_000_000;
 /// read. cloud-init grows `/` at boot, and SSH can answer before it does.
 const CLOUD_INIT_WAIT_SECS: u32 = 300;
 
+/// Refresh the package lists just before the full update. The first refresh ran before the
+/// desktop install, many minutes earlier.
+const APT_UPDATE_COMMAND: &str = "sudo DEBIAN_FRONTEND=noninteractive apt-get update -q";
+
+/// Install every pending update, including each update that needs a new package, such as a new
+/// kernel. `apt-get upgrade` holds those back (ADR-0027). The Dpkg options keep each changed
+/// config file of the image, with no prompt.
+const FULL_UPGRADE_COMMAND: &str = "sudo DEBIAN_FRONTEND=noninteractive apt-get full-upgrade -y \
+     -o Dpkg::Options::='--force-confdef' -o Dpkg::Options::='--force-confold'";
+
+/// The step name that a failed full update reports.
+const FULL_UPGRADE_STEP: &str = "system update (apt-get full-upgrade)";
+
 // ---- pure helpers (unit-tested) -----------------------------------------
+
+/// The build result of the full update: a nonzero exit fails golden creation. Test seam of the
+/// fatal handling: [`system_updates`] passes its output here.
+fn full_upgrade_outcome(out: &ExecOutput) -> Result<(), VmError> {
+    crate::golden::check_exit(out, FULL_UPGRADE_STEP)
+}
 
 /// Whether golden creation must grow the setup VM's disk, given its current
 /// size in GB. A disk of [`LINUX_DISK_GB`] or more stays as it is. When the
@@ -297,16 +320,15 @@ pub async fn create_golden_linux(opts: &GoldenOptions, paths: &VmPaths) -> Resul
     eprintln!("Using SSH key: {}", pubkey.display());
     eprintln!("Using Linux agent: {}", agent_dir.display());
 
-    // Delete any existing golden of the same name first.
-    if crate::tart::vm_exists(&opts.name) {
-        eprintln!("Deleting existing golden image '{}'...", opts.name);
-        crate::tart::remove_existing(&opts.name);
-    }
+    // Pull before the clone: a clone of a cached tag asks no registry, so it would start from the
+    // image that tart cached earlier (ADR-0027). An earlier golden of the same name stays until
+    // the final clone.
+    let vanilla = vanilla_image_linux(&opts.version);
+    eprintln!("Pulling {vanilla} (downloads the image when the tag moved — can take several minutes)...");
+    crate::tart::pull(&vanilla)?;
 
     let setup_id = generate_id().replacen("testanyware-", "testanyware-setup-", 1);
-    let vanilla = vanilla_image_linux(&opts.version);
     eprintln!("Cloning {vanilla} → {setup_id}...");
-    eprintln!("(This may pull the image on first run — can take several minutes)");
     crate::tart::clone(&vanilla, &setup_id)?;
 
     // The disk has never booted, so the guest grows `/` by itself (cloud-init)
@@ -468,7 +490,7 @@ async fn provision_desktop_and_agent(
     install_firefox(session).await;
     configure_autologin(session).await?;
     configure_desktop(session).await?;
-    system_updates(session).await;
+    system_updates(session).await?;
     configure_silent_boot(session).await;
     install_agent(session, agent_dir, setup_id, paths).await?;
     Ok(())
@@ -630,18 +652,15 @@ async fn configure_desktop(session: &SshSession) -> Result<(), VmError> {
     Ok(())
 }
 
-/// Run all pending system updates so the golden ships fully patched, and disable
-/// the update-notifier + apt-daily timers so nothing pops up during tests.
-/// Tolerant throughout (cosmetic / long-running). Ports script lines ~362–372.
-async fn system_updates(session: &SshSession) {
-    eprintln!("Running system updates (this may take a few minutes)...");
-    exec_tolerant(
-        session,
-        "sudo DEBIAN_FRONTEND=noninteractive apt-get upgrade -y \
-         -o Dpkg::Options::='--force-confdef' -o Dpkg::Options::='--force-confold'",
-        "system upgrade",
-    )
-    .await;
+/// Install every pending update so the golden holds the latest release of its
+/// major (ADR-0027), and disable the update-notifier + apt-daily timers so
+/// nothing pops up during tests. The refresh of the lists and the full update
+/// are fatal. The later steps are tolerant. Ports script lines ~362–372.
+async fn system_updates(session: &SshSession) -> Result<(), VmError> {
+    eprintln!("Installing every pending update (this may take a few minutes)...");
+    exec_checked(session, APT_UPDATE_COMMAND, "apt-get update before the full update").await?;
+    let out = session.exec(FULL_UPGRADE_COMMAND).await?;
+    full_upgrade_outcome(&out)?;
     exec_tolerant(session, "sudo apt-get remove -y update-notifier 2>/dev/null || true", "remove update-notifier").await;
     exec_tolerant(
         session,
@@ -650,6 +669,7 @@ async fn system_updates(session: &SshSession) {
     )
     .await;
     eprintln!("  Updates complete.");
+    Ok(())
 }
 
 /// Configure GRUB for a silent, instant boot straight to the GUI (drop the
@@ -902,7 +922,14 @@ async fn shutdown_guest(setup: &SetupVm) {
 /// `tart clone <setup> <golden>` then `tart delete <setup>`. The clone is the
 /// one fatal step (no clone, no golden); a failed delete only leaks the
 /// (stopped) setup VM, so it warns. Ports script lines ~509–512.
+///
+/// An earlier golden of the same name is deleted here, just before the clone, and not in boot 1.
+/// So a build that fails before this point keeps the earlier golden (ADR-0027).
 fn clone_to_golden(setup_id: &str, name: &str) -> Result<(), VmError> {
+    if crate::tart::vm_exists(name) {
+        eprintln!("Replacing the earlier golden image '{name}'...");
+        crate::tart::remove_existing(name);
+    }
     eprintln!("Creating golden image '{name}'...");
     crate::tart::clone(setup_id, name)?;
     if !crate::tart::delete_golden(setup_id) {
@@ -920,6 +947,40 @@ mod tests {
     fn vanilla_image_linux_matches_cirrus_naming() {
         assert_eq!(vanilla_image_linux("24.04"), "ghcr.io/cirruslabs/ubuntu:24.04");
         assert_eq!(vanilla_image_linux("22.04"), "ghcr.io/cirruslabs/ubuntu:22.04");
+    }
+
+    #[test]
+    fn the_full_update_installs_every_update_with_no_prompt() {
+        let cmd = FULL_UPGRADE_COMMAND;
+        assert!(cmd.contains("apt-get full-upgrade -y"), "{cmd}");
+        assert!(!cmd.contains("apt-get upgrade"), "{cmd}");
+        assert!(cmd.contains("DEBIAN_FRONTEND=noninteractive"), "{cmd}");
+        assert!(cmd.contains("Dpkg::Options::='--force-confdef'"), "{cmd}");
+        assert!(cmd.contains("Dpkg::Options::='--force-confold'"), "{cmd}");
+        assert!(APT_UPDATE_COMMAND.contains("apt-get update"), "{APT_UPDATE_COMMAND}");
+    }
+
+    #[test]
+    fn a_failed_full_update_fails_the_build() {
+        let out = ExecOutput {
+            stdout: String::new(),
+            stderr: "E: Sub-process /usr/bin/dpkg returned an error code (1)\n".into(),
+            exit_code: 100,
+        };
+        match full_upgrade_outcome(&out) {
+            Err(VmError::GoldenCreateFailed { detail }) => {
+                assert!(detail.contains("apt-get full-upgrade"), "{detail}");
+                assert!(detail.contains("exit 100"), "{detail}");
+                assert!(detail.contains("dpkg returned an error code"), "{detail}");
+            }
+            other => panic!("expected GoldenCreateFailed, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_full_update_that_exits_zero_passes() {
+        let out = ExecOutput { stdout: "done".into(), stderr: String::new(), exit_code: 0 };
+        assert!(full_upgrade_outcome(&out).is_ok());
     }
 
     #[test]

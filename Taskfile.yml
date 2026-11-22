@@ -1684,7 +1684,7 @@ tasks:
       - '{{.CLI}} vm create-golden --platform macos --version {{.VERSION | default "27"}}'
 
   vm:create-golden-linux:
-    desc: 'Build a Linux golden that carries this checkout''s agent, not the Homebrew-bundled one. Needs NAME=<golden> (use a new name: a rebuild replaces a golden of the same name); optional VERSION (default 24.04). The build grows the disk to 50 GB and fails when / is under 40 GB. About 20 to 40 minutes, and it pulls an image. Run it from a terminal that may reach guest IPs (macOS Local Network permission)'
+    desc: 'Build a Linux golden that carries this checkout''s agent, not the Homebrew-bundled one. Needs NAME=<golden> (use a new name: a rebuild replaces a golden of the same name); optional VERSION (default 24.04). The build grows the disk to 50 GB and fails when / is under 40 GB. About 20 to 40 minutes. It pulls the Cirrus Labs image again and installs every pending update. Run it from a terminal that may reach guest IPs (macOS Local Network permission). vm:refresh-golden-linux replaces the golden of the default name'
     deps: [cli:build]
     vars:
       CLI: '{{.CLI_DIR}}/target/debug/testanyware'
@@ -1697,6 +1697,16 @@ tasks:
       - task: vm:golden-name-free
         vars: {NAME: '{{.NAME}}', GUARD_CLI: '{{.CLI}}'}
       - '{{.CLI}} vm create-golden --platform linux --version {{.VERSION | default "24.04"}} --name {{.NAME | shellQuote}}'
+
+  vm:refresh-golden-linux:
+    desc: 'Refresh the Linux golden of the default name (testanyware-golden-linux-<VERSION>) to the latest release of its major, with the agent of this checkout (ADR-0027). Optional VERSION is the Ubuntu release (default 24.04). The build pulls the Cirrus Labs image again (about 5 GB when the tag moved) and installs every pending update with apt-get full-upgrade. A failed update fails the build. It skips the name guard of vm:create-golden-linux, because the refresh replaces that golden, and only when the new golden is ready. `testanyware vm create-golden --platform linux --dry-run` names the image and says whether the run replaces a golden. About 20 to 40 minutes. Run it from a terminal that may reach guest IPs (macOS Local Network permission)'
+    deps: [cli:build]
+    vars:
+      CLI: '{{.CLI_DIR}}/target/debug/testanyware'
+    env:
+      TESTANYWARE_AGENT_BIN_OVERRIDE: '{{.ROOT_DIR}}/agents/linux'
+    cmds:
+      - '{{.CLI}} vm create-golden --platform linux --version {{.VERSION | default "24.04"}}'
 
   vm:linux-golden-disk-live:
     desc: 'Does a clone of a Linux golden have the free disk that golden creation grows it for? Needs GOLDEN=<golden>; starts a clone, reads `df` of /, and fails when under MIN_AVAIL_GB (default 30) is available. A grown golden gives about 36 GB; one built before the growth gives about 8.8 GB. About 1 minute; always stops and deletes the clone. Run it from a terminal that may reach guest IPs (macOS Local Network permission)'

@@ -484,6 +484,7 @@ All images share these properties:
 ### Linux (`testanyware-golden-linux-24.04`)
 
 - **Ubuntu 24.04 Desktop** (ARM64, via Cirrus Labs vanilla image + `ubuntu-desktop-minimal`)
+- **Refresh** — the build pulls the Cirrus Labs image again, and it installs every pending update with `apt-get full-upgrade`. A failed update fails the build. The earlier golden goes only when the new golden is ready. `vm create-golden --platform linux --dry-run` names the image and the pull
 - **Agent autostart** — systemd user service (`testanyware-agent.service`)
 - **Accessibility** — AT-SPI2 enabled, `python3-pyatspi` for bindings, `xdotool` for window management fallback
 - **Package manager** — apt

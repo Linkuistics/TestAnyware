@@ -84,17 +84,8 @@ Golden creation then fails with the error above.
   to 50 GB before its first boot. cloud-init in each clone grows `/` at boot.
   A clone has about 36 GB free, against 8.8 GB on the 20 GB disk. The host
   uses no space for it until the guest writes. Golden creation reads the size
-  of `/` over SSH, and it fails the build when the size is under 40 GB.
-
-  A golden built before this change keeps its 20 GB disk. Give it the space
-  without a rebuild:
-
-  ```bash
-  tart set testanyware-golden-linux-24.04 --disk-size 50
-  ```
-
-  tart can only grow a disk, so you cannot undo this. To check a golden from
-  a checkout, run
+  of `/` over SSH, and it fails the build when the size is under 40 GB. To
+  check a golden from a checkout, run
   `task vm:linux-golden-disk-live GOLDEN=testanyware-golden-linux-24.04`. It
   starts a clone and reports the free space of `/`.
 
@@ -138,8 +129,13 @@ time whether a golden is older than the latest release.
   IPSW of another release. If the catalogue lists no `VirtualMac2,1` release of
   the major, golden creation fails with `GOLDEN_CREATE_FAILED`, and it never
   uses another build.
-- **Linux.** The build installs the current Ubuntu updates of the release in
-  the name.
+- **Linux.** The build pulls the Cirrus Labs image
+  `ghcr.io/cirruslabs/ubuntu:<version>` first. A clone of an image that tart
+  cached earlier asks no registry. So the pull makes the build start from the
+  current image of the tag. When the tag moved, the pull downloads about 5 GB.
+  Then the build installs every pending update with `apt-get full-upgrade`. This
+  includes each update that needs a new package, such as a new kernel. A failed
+  update fails the build.
 - **Windows.** The golden holds the release of the ISO that you supply.
   TestAnyware cannot download that ISO, and it runs no Windows Update. So the
   golden misses each cumulative update that Microsoft releases after its ISO.
@@ -155,6 +151,10 @@ It reads the catalogue and `tart list`. It names the release and its build, and
 it says whether the base of that release exists. It names each older base that
 the run deletes, and it says when the run replaces a golden. The dry run and the
 run both need the network. Without it, both fail with the same error.
+
+The Linux dry run, `testanyware vm create-golden --platform linux --dry-run`,
+names the source image and says that the run pulls it first. It reads
+`tart list`, and it says when the run replaces a golden.
 
 ## Creating the golden images
 

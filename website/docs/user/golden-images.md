@@ -99,8 +99,13 @@ time whether a golden is older than the latest release.
   IPSW of another release. If the catalogue lists no `VirtualMac2,1` release of
   the major, golden creation fails with `GOLDEN_CREATE_FAILED`, and it never
   uses another build.
-- **Linux.** The build installs the current Ubuntu updates of the release in
-  the name.
+- **Linux.** The build pulls the Cirrus Labs image
+  `ghcr.io/cirruslabs/ubuntu:<version>` first. A clone of an image that tart
+  cached earlier asks no registry. So the pull makes the build start from the
+  current image of the tag. When the tag moved, the pull downloads about 5 GB.
+  Then the build installs every pending update with `apt-get full-upgrade`. This
+  includes each update that needs a new package, such as a new kernel. A failed
+  update fails the build.
 - **Windows.** The golden holds the release of the ISO that you supply.
   TestAnyware cannot download that ISO, and it runs no Windows Update. So the
   golden misses each cumulative update that Microsoft releases after its ISO.
@@ -116,6 +121,10 @@ It reads the catalogue and `tart list`. It names the release and its build, and
 it says whether the base of that release exists. It names each older base that
 the run deletes, and it says when the run replaces a golden. The dry run and the
 run both need the network. Without it, both fail with the same error.
+
+The Linux dry run, `testanyware vm create-golden --platform linux --dry-run`,
+names the source image and says that the run pulls it first. It reads
+`tart list`, and it says when the run replaces a golden.
 
 ## Creating the golden images
 

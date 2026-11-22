@@ -92,6 +92,10 @@ For macOS, the base VM
 whether the run builds a new base (about 25 GB download). A macOS refresh
 deletes the older bases and the cached IPSWs of other releases.
 
+For Linux, the build pulls the Cirrus Labs image again, and it installs every
+pending update with `apt-get full-upgrade`. A failed update fails the build.
+`vm create-golden --platform linux --dry-run` names the image and the pull.
+
 `vm start --viewer` opens a VNC viewer window. On macOS the first use
 prompts for Automation permission.
 

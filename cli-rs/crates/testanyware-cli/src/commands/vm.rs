@@ -728,15 +728,11 @@ async fn run_vm_create_golden_linux(
     mode: OutputMode,
     dry_run: bool,
 ) {
-    if dry_run {
-        emit_linux_golden_plan(&version, &name, mode);
-        return;
-    }
-
-    // tart is macOS-only, so a non-macOS host cannot serve the command.
+    // tart is macOS-only, so a non-macOS host cannot serve the command. The dry run reads
+    // `tart list`, so it fails the same way.
     #[cfg(not(target_os = "macos"))]
     {
-        let _ = (&version, &name);
+        let _ = (&version, &name, dry_run);
         exit_vm_error(
             VmError::BackendUnsupported {
                 platform: "macos (vm create-golden --platform linux requires a macOS host)".into(),
@@ -749,6 +745,21 @@ async fn run_vm_create_golden_linux(
     {
         use testanyware_vm::golden::GoldenOptions;
         use testanyware_vm::golden_linux::create_golden_linux;
+
+        // The dry run reads `tart list` to say whether the run replaces a golden, and it fails
+        // with the error of tart when the read fails (ADR-0027).
+        if dry_run {
+            let tools = testanyware_vm::tools::ToolSearch::from_process_path();
+            match testanyware_vm::tart::all_names_strict_in(&tools) {
+                Ok(names) => {
+                    let golden_exists = names.iter().any(|n| n == &name);
+                    let image = testanyware_vm::golden_linux::vanilla_image_linux(&version);
+                    emit_linux_golden_plan(&version, &name, &image, golden_exists, mode);
+                }
+                Err(detail) => exit_vm_error(VmError::TartFailed { detail }, mode),
+            }
+            return;
+        }
 
         // The app cannot compare the directories of a command that sends it no request.
         crate::host_config::refuse_golden_if_directories_differ(mode);
@@ -879,18 +890,43 @@ fn linux_boot_plan() -> [(u32, &'static str, &'static str); 2] {
         (1, "normal",
          "SSH pubkey install, Ubuntu Desktop (minimal), NetworkManager via netplan, \
           Firefox, GDM autologin forced to X11, solid-gray locked-down desktop, \
-          system updates, silent boot, testanyware-agent (systemd user service + AT-SPI2)"),
+          every pending update (apt-get full-upgrade), silent boot, \
+          testanyware-agent (systemd user service + AT-SPI2)"),
         (2, "normal",
          "reboot to apply (GDM autologin starts the agent), verify agent health on \
-          port 8648, disable + mask sshd, clean shutdown, clone to golden"),
+          port 8648, disable + mask sshd, clean shutdown, replace the earlier golden, \
+          clone to golden"),
     ]
 }
 
-fn emit_linux_golden_plan(version: &str, name: &str, mode: OutputMode) {
+/// The lines of the Linux dry-run plan that name the source image and the golden (ADR-0027).
+/// Pure, so the text is unit-tested.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn linux_plan_lines(image: &str, name: &str, golden_exists: bool) -> Vec<String> {
+    let mut lines = vec![format!(
+        "image: {image}. The run pulls it first, so the build starts from the current image of the tag"
+    )];
+    if golden_exists {
+        lines.push(format!("golden: {name} exists. The run replaces it when the new golden is ready"));
+    }
+    lines
+}
+
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn emit_linux_golden_plan(
+    version: &str,
+    name: &str,
+    image: &str,
+    golden_exists: bool,
+    mode: OutputMode,
+) {
     let plan = linux_boot_plan();
     match mode {
         OutputMode::Text => {
             println!("dry-run: would create golden {name} (platform linux, version {version})");
+            for line in linux_plan_lines(image, name, golden_exists) {
+                println!("{line}");
+            }
             println!("boot plan (2 normal boots — no SIP/TCC/recovery cycle):");
             for (step, boot_mode, actions) in plan {
                 println!("  {step}. [{boot_mode}] {actions}");
@@ -908,6 +944,8 @@ fn emit_linux_golden_plan(version: &str, name: &str, mode: OutputMode) {
                 "platform": "linux",
                 "version": version,
                 "name": name,
+                "image": { "name": image, "pull": true },
+                "golden_exists": golden_exists,
                 "boot_plan": steps,
             }));
         }
@@ -1195,5 +1233,20 @@ mod tests {
         assert!(plan[0].2.contains("testanyware-agent"));
         assert!(plan[1].2.contains("verify agent health"));
         assert!(plan[1].2.contains("clone to golden"));
+        assert!(plan[0].2.contains("apt-get full-upgrade"));
+        assert!(plan[1].2.contains("replace the earlier golden"));
+    }
+
+    #[test]
+    fn the_linux_plan_text_names_the_image_the_pull_and_a_replaced_golden() {
+        let image = "ghcr.io/cirruslabs/ubuntu:24.04";
+        assert_eq!(
+            linux_plan_lines(image, "testanyware-golden-linux-24.04", true),
+            [
+                "image: ghcr.io/cirruslabs/ubuntu:24.04. The run pulls it first, so the build starts from the current image of the tag",
+                "golden: testanyware-golden-linux-24.04 exists. The run replaces it when the new golden is ready",
+            ]
+        );
+        assert_eq!(linux_plan_lines(image, "g", false).len(), 1);
     }
 }

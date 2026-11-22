@@ -1246,6 +1246,54 @@ fn vm_create_golden_dry_run_fails_when_a_read_fails() {
     assert!(detail.contains("mesu.apple.com") && detail.contains("macOS 27"), "{body}");
 }
 
+/// ADR-0027: the dry run of Linux golden creation names the source image, says that the run
+/// pulls it first, and says when the run replaces a golden. It reads `tart list`, and it fails
+/// with the error of tart when that read fails.
+#[cfg(target_os = "macos")]
+#[test]
+fn vm_create_golden_linux_dry_run_names_the_image_and_the_pull() {
+    use std::os::unix::fs::PermissionsExt;
+    const JSON: &[&str] = &["vm", "create-golden", "--platform", "linux", "--dry-run", "--json"];
+    const TEXT: &[&str] = &["vm", "create-golden", "--platform", "linux", "--dry-run"];
+
+    let host = GoldenHost::new(&["testanyware-golden-linux-24.04"]);
+    let out = host.run(JSON);
+    assert_eq!(out.status.code(), Some(0), "{}", String::from_utf8_lossy(&out.stderr));
+    let body: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(body["image"]["name"], "ghcr.io/cirruslabs/ubuntu:24.04", "{body}");
+    assert_eq!(body["image"]["pull"], true, "{body}");
+    assert_eq!(body["golden_exists"], true, "{body}");
+    assert_eq!(body["name"], "testanyware-golden-linux-24.04", "{body}");
+
+    let out = host.run(TEXT);
+    assert_eq!(out.status.code(), Some(0));
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        text.contains("image: ghcr.io/cirruslabs/ubuntu:24.04. The run pulls it first"),
+        "{text}"
+    );
+    assert!(text.contains("golden: testanyware-golden-linux-24.04 exists"), "{text}");
+    assert!(text.contains("apt-get full-upgrade"), "{text}");
+
+    // No golden of the name: the plan names the image and the pull, and no replacement.
+    let host = GoldenHost::new(&[]);
+    let body: serde_json::Value = serde_json::from_slice(&host.run(JSON).stdout).unwrap();
+    assert_eq!(body["golden_exists"], false, "{body}");
+    assert_eq!(body["image"]["pull"], true, "{body}");
+    let text = String::from_utf8_lossy(&host.run(TEXT).stdout).into_owned();
+    assert!(!text.contains("golden: "), "{text}");
+
+    // A failed `tart list` fails the dry run with the error of tart.
+    let host = GoldenHost::new(&[]);
+    let tart = host.dir.path().join("tools").join("tart");
+    std::fs::write(&tart, "#!/bin/sh\necho 'tart: boom' >&2\nexit 1\n").unwrap();
+    std::fs::set_permissions(&tart, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let out = host.run(JSON);
+    assert_ne!(out.status.code(), Some(0));
+    let body: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(body["code"], "TART_FAILED", "{body}");
+}
+
 /// ADR-0016 D3: the `--display WxH@2x` HiDPI opt-in is validated at the CLI
 /// boundary. A `@Nx` for N≠2, or `@2x` on a non-macOS guest, is a `USAGE_ERROR`
 /// (exit 2) — caught before any VM/golden lookup, so no backend is needed.

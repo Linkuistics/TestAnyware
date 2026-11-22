@@ -429,6 +429,27 @@ pub fn clone_in(tools: &ToolSearch, base: &str, id: &str) -> Result<(), VmError>
     }
 }
 
+/// `tart pull <remote>`: bring the current image of a registry tag into the cache of tart.
+/// `tart clone` of a cached tag asks no registry and clones the cached image, so a build that
+/// needs the current image of the tag pulls first (ADR-0027). The pull reads the manifest of the
+/// tag, downloads a new digest, and points the tag at it. A digest in the cache is not
+/// downloaded again. Source, tart 2.42.0:
+/// <https://github.com/cirruslabs/tart/blob/2.42.0/Sources/tart/VMStorageOCI.swift> and
+/// <https://github.com/cirruslabs/tart/blob/2.42.0/Sources/tart/Commands/Clone.swift>.
+pub fn pull(remote: &str) -> Result<(), VmError> {
+    pull_in(&ToolSearch::from_process_path(), remote)
+}
+
+/// [`pull`], with `tart` found by `tools`. Test seam of the pull command.
+pub fn pull_in(tools: &ToolSearch, remote: &str) -> Result<(), VmError> {
+    let r = run_tart_in(tools, &["pull", remote]);
+    if r.exit_code == 0 {
+        Ok(())
+    } else {
+        Err(VmError::TartFailed { detail: format!("tart pull {remote}: {}", r.stderr.trim()) })
+    }
+}
+
 /// `tart create <name> --from-ipsw <ipsw> --disk-size <gb>`: install macOS from
 /// a restore image into a new, stopped VM. Takes a while (the restore runs
 /// inside Virtualization.framework), so callers should expect minutes. The VM
@@ -1051,6 +1072,28 @@ mod tests {
         std::fs::set_permissions(&tart, std::fs::Permissions::from_mode(0o755)).unwrap();
         let tools = ToolSearch::new(vec![dir.path().to_path_buf()]);
         (dir, tools)
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn pull_runs_tart_pull_with_the_remote_name() {
+        let (dir, tools) = tart_script(r#"echo "$@" > "$(dirname "$0")/args""#);
+        pull_in(&tools, "ghcr.io/cirruslabs/ubuntu:24.04").unwrap();
+        let args = std::fs::read_to_string(dir.path().join("args")).unwrap();
+        assert_eq!(args.trim(), "pull ghcr.io/cirruslabs/ubuntu:24.04");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_failed_pull_is_an_error_that_names_the_image_and_the_reason() {
+        let (_dir, tools) = tart_script("echo 'network unreachable' >&2; exit 1");
+        match pull_in(&tools, "ghcr.io/cirruslabs/ubuntu:24.04") {
+            Err(VmError::TartFailed { detail }) => {
+                assert!(detail.contains("tart pull ghcr.io/cirruslabs/ubuntu:24.04"), "{detail}");
+                assert!(detail.contains("network unreachable"), "{detail}");
+            }
+            other => panic!("expected TartFailed, got {other:?}"),
+        }
     }
 
     #[cfg(unix)]

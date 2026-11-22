@@ -251,6 +251,13 @@ pub(crate) fn brew_prefix(formula: &str) -> Option<PathBuf> {
 /// [`crate::golden_linux`].
 pub(crate) async fn exec_checked(session: &SshSession, command: &str, what: &str) -> Result<(), VmError> {
     let out = session.exec(command).await?;
+    check_exit(&out, what)
+}
+
+/// The rule of [`exec_checked`] for the output of one command: a nonzero exit fails golden
+/// creation, and the error names the step, the exit and stderr. Pure, so the fatal handling of a
+/// step is unit-tested.
+pub(crate) fn check_exit(out: &crate::ssh::ExecOutput, what: &str) -> Result<(), VmError> {
     if out.exit_code != 0 {
         return Err(VmError::GoldenCreateFailed {
             detail: format!(

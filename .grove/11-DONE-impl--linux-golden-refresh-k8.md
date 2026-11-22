@@ -76,3 +76,52 @@ with the agent of this checkout.
   image again when the tag moved.
 - Keep the build logs in scratch, not in the repository.
 - The release leaf follows this leaf.
+
+## Decisions (running log)
+
+- 2026-11-23, pull semantics. The tart source of 2.42.0, the installed
+  version, settles the image step. `tart clone` of a tag that the cache
+  holds asks no registry, so it clones a stale image. `tart pull` always
+  reads the manifest of the tag, downloads a new digest, and points the tag
+  at it. Sources: `Sources/tart/Commands/Clone.swift` and
+  `Sources/tart/VMStorageOCI.swift` at tag 2.42.0. The citation goes beside
+  the pull in `tart.rs`.
+- 2026-11-23, fresh package lists. The full update first runs
+  `apt-get update` again as a fatal step. The first update runs before the
+  desktop install, many minutes earlier.
+- 2026-11-23, fatal seam. A pure function maps the exit of the full update
+  to the build result, and `system_updates` calls it. The unit tests read
+  that function.
+- 2026-11-23, Linux dry run. The plan reads `tart list`, as the macOS plan
+  does, and fails with `TART_FAILED` when the read fails. So it also fails
+  with `BACKEND_UNSUPPORTED` on a host that is not macOS. The JSON gains
+  `image` (`name`, `pull`) and `golden_exists`.
+- 2026-11-23, controls. Three mutations failed the new unit tests: `clone`
+  in place of `pull`, `apt-get upgrade` in place of `full-upgrade`, and an
+  outcome that ignores the exit. The restored files passed them.
+- 2026-11-23, mirror. The mirror under `website/docs/` had drifted before
+  this leaf. It lacks the slot section and the disk section of the source
+  page. This leaf changes only the Linux refresh text and the dry-run text
+  in both pages, and it leaves the drift alone.
+- 2026-11-23, suites. `task cli:test` passed: 63 suites, 1741 tests, 0
+  failed, 13 live tests ignored. The changed files did not move during the
+  run. Clippy reports nothing new in the changed code.
+- 2026-11-23, plan seam. On this Mac, the Linux dry run named
+  `ghcr.io/cirruslabs/ubuntu:24.04`, the pull, and the existing golden that
+  the run replaces.
+- 2026-11-23, refresh. `task vm:refresh-golden-linux` rebuilt
+  `testanyware-golden-linux-24.04` in 13 minutes. The pull moved the cached
+  tag from digest `51b493a0…` to `5a6dcb63…`. The full update passed, `/`
+  was 47.3 GB, and the earlier golden went only at the final clone. The new
+  golden has a 50 GB disk.
+- 2026-11-23, live criteria. `task vm:linux-golden-disk-live` passed: a
+  clone had 38.6 GB free on `/`. A clone reported Ubuntu 24.04.5 LTS and
+  kernel 7.0.0-43-generic. `apt list --upgradable` listed no package with
+  the lists of the build. After `apt-get update` (exit 0) in a clone, it
+  still listed no package. `vm start` returned `ok: true`, which needs a
+  Healthy agent, and `agent health` reported the agent reachable and
+  accessible.
+- 2026-11-23, review. This leaf cut no `review-impl` leaf. The pull carries
+  a citation of the tart source, mutations failed the new tests, and a live
+  build exercised each changed step. A wrong change is easy to reverse: a
+  rebuild replaces the golden.

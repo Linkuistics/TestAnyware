@@ -779,6 +779,7 @@ OUTPUT:
     sets `dry_run: true` and carries the plan array (`boot_plan` for macOS
     and linux, `plan` for windows). Nothing changes. The macOS plan also
     carries `release`, `base` (`name`, `exists`, `older`) and `golden_exists`.
+    The linux plan also carries `image` (`name`, `pull`) and `golden_exists`.
 
 EXIT CODES:
     0  success (including --dry-run)
@@ -797,9 +798,10 @@ PLATFORM:
     base of the major and each cached IPSW of another release. The run and
     the dry run read the catalogue over the network. A Cirrus Labs tag
     (tahoe, sequoia, sonoma) or a major below 27 is a usage error (exit 2).
-    linux clones a Cirrus Labs vanilla
-    Ubuntu image via tart and provisions Ubuntu Desktop + the agent over SSH
-    in 2 normal boots (no SIP/TCC cycle). windows boots an unattended install
+    linux pulls the Cirrus Labs vanilla
+    Ubuntu image, clones it via tart, and provisions Ubuntu Desktop, every
+    pending update (apt-get full-upgrade) and the agent over SSH in 2 normal
+    boots (no SIP/TCC cycle). windows boots an unattended install
     from a Microsoft evaluation ISO under QEMU+swtpm and provisions over the
     in-VM agent (no SSH); pass --iso on first run (cached afterwards).
 
@@ -836,7 +838,10 @@ EXAMPLES:
     # Name the macOS major (27 or later) in the plan
     testanyware vm create-golden --platform macos --version 27 --dry-run
 
-    # Create the default Ubuntu 24.04 golden (macOS host)
+    # Show the Linux source image, the pull and the boot plan
+    testanyware vm create-golden --platform linux --dry-run
+
+    # Create or refresh the default Ubuntu 24.04 golden (macOS host)
     testanyware vm create-golden --platform linux
 
     # Create the Windows 11 ARM64 golden (first run needs --iso)
