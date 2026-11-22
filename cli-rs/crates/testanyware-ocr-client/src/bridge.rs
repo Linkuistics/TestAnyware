@@ -55,9 +55,9 @@ pub enum OcrBridgeError {
     #[error("OCR daemon child process crashed")]
     ChildCrashed,
 
-    /// The daemon did not respond within the configured deadline.
-    /// Mapped to `OCR_TIMEOUT` (§5 exit code 7) by the CLI.
-    #[error("OCR daemon did not respond in time")]
+    /// The daemon, or the in-process Vision engine, did not respond within
+    /// its deadline. Mapped to `OCR_TIMEOUT` (§5 exit code 7) by the CLI.
+    #[error("OCR did not respond in time")]
     ResponseTimeout,
 }
 

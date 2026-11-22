@@ -141,8 +141,12 @@ const Q_RESULT_SIP: &str = "System Integrity Protection";
 /// §4 code; the variant detail is preserved in the message.
 #[derive(Debug, thiserror::Error)]
 pub enum RecoveryError {
-    #[error("recovery: expected on-screen text {query:?} did not appear within the deadline")]
-    TextNotFound { query: String },
+    /// `seen` is the OCR read of the last frame, so the error shows what was on screen.
+    #[error(
+        "recovery: expected on-screen text {query:?} did not appear within the deadline; \
+         OCR read: {seen:?}"
+    )]
+    TextNotFound { query: String, seen: Vec<String> },
     #[error("recovery: RFB error: {0}")]
     Rfb(#[from] RfbError),
     #[error("recovery: input error: {0}")]
@@ -286,12 +290,7 @@ impl RecoverySession {
     ) -> Result<Located, RecoveryError> {
         let mut backoff = BACKOFF_START;
         loop {
-            let png = capture_frame_png(&mut self.conn).await?;
-            let detections = self
-                .engine
-                .recognize(&png)
-                .await
-                .map_err(|e| RecoveryError::Ocr(e.to_string()))?;
+            let detections = self.read_screen().await?;
             if let FindOutcome::Found { matches, .. } = find_text(query, &detections) {
                 if let Some(detection) = matches.into_iter().next() {
                     let centre = detection.centre();
@@ -299,7 +298,8 @@ impl RecoverySession {
                 }
             }
             if Instant::now() >= deadline {
-                return Err(RecoveryError::TextNotFound { query: query.to_string() });
+                let seen = detections.into_iter().map(|d| d.text).collect();
+                return Err(RecoveryError::TextNotFound { query: query.to_string(), seen });
             }
             tokio::time::sleep(backoff).await;
             backoff = (backoff * 2).min(BACKOFF_MAX);
@@ -311,6 +311,13 @@ impl RecoverySession {
     /// that decide what to do from the whole screen rather than from one
     /// expected string.
     pub(crate) async fn observe(&mut self) -> Result<Vec<OcrDetection>, RecoveryError> {
+        self.read_screen().await
+    }
+
+    /// Capture a frame and OCR it. A Vision request that hangs fails here with
+    /// `OCR_TIMEOUT` after its deadline. A retry does not help: in the refresh
+    /// of 2026-11-22, the requests after a hung one hung too.
+    async fn read_screen(&mut self) -> Result<Vec<OcrDetection>, RecoveryError> {
         let png = capture_frame_png(&mut self.conn).await?;
         self.engine.recognize(&png).await.map_err(|e| RecoveryError::Ocr(e.to_string()))
     }

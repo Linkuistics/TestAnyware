@@ -62,8 +62,10 @@ const IDLE_POLL: Duration = Duration::from_secs(1);
 const NUDGE_EVERY: Duration = Duration::from_secs(8);
 /// Pause between actions on one screen (the guest drops back-to-back input).
 const ACTION_PAUSE: Duration = Duration::from_millis(500);
-/// Terminal needs a moment after Spotlight opens it.
+/// Terminal needs a moment after Finder opens it.
 const TERMINAL_WAIT: Duration = Duration::from_secs(60);
+/// How many times the driver tries to open Terminal before it fails.
+const TERMINAL_ATTEMPTS: u32 = 3;
 
 // ---- the screen table (pure, unit-tested) -------------------------------
 
@@ -369,24 +371,50 @@ pub(crate) async fn run_setup_assistant(
     }
 }
 
-/// Turn Remote Login on from the desktop: open Terminal through Spotlight and
-/// load the `sshd` launch daemon (`sudo`, answering the password prompt).
+/// Open Terminal from the Utilities folder of Finder, which is frontmost on the
+/// new desktop. Spotlight is not used. On a new account it opens slowly, and it
+/// puts a first-use panel in front of its search field. So text typed after a
+/// fixed pause can miss the field. Each step here waits until OCR sees what it
+/// needs.
+async fn open_terminal(s: &mut RecoverySession) -> Result<(), RecoveryError> {
+    let mut attempt = 1;
+    loop {
+        eprintln!("  Opening Terminal (Finder, Utilities)...");
+        match try_open_terminal(s).await {
+            Ok(()) => return Ok(()),
+            Err(e @ (RecoveryError::TextNotFound { .. } | RecoveryError::Ocr(_)))
+                if attempt < TERMINAL_ATTEMPTS =>
+            {
+                eprintln!("  Terminal did not open (attempt {attempt}/{TERMINAL_ATTEMPTS}): {e}");
+                attempt += 1;
+            }
+            Err(e) => return Err(e),
+        }
+    }
+}
+
+async fn try_open_terminal(s: &mut RecoverySession) -> Result<(), RecoveryError> {
+    s.key_chord("u", &["cmd", "shift"]).await?;
+    let c = wait_for_label(s, |d| exact_label(d, "Terminal").map(|x| x.centre()), "Terminal")
+        .await?;
+    let (x, y) = round_point(c);
+    s.click_at(x, y).await?;
+    tokio::time::sleep(ACTION_PAUSE).await;
+    s.key_chord("o", &["cmd"]).await?;
+    // The shell prompt's "Last login" line shows once Terminal is ready.
+    s.wait_for_text("Last login", deadline_in(TERMINAL_WAIT)).await?;
+    Ok(())
+}
+
+/// Turn Remote Login on from the desktop: open Terminal and load
+/// `/System/Library/LaunchDaemons/ssh.plist` (`sudo`, answering the password prompt).
 /// `systemsetup -setremotelogin` is not used: it needs Full Disk Access, which
 /// a fresh Terminal does not have.
 pub(crate) async fn enable_remote_login(
     s: &mut RecoverySession,
     pass: &str,
 ) -> Result<(), RecoveryError> {
-    eprintln!("  Opening Terminal (Spotlight)...");
-    s.key_chord("space", &["cmd"]).await?;
-    // Let the Spotlight field take focus before typing into it.
-    tokio::time::sleep(Duration::from_secs(2)).await;
-    s.type_text("Terminal").await?;
-    tokio::time::sleep(Duration::from_secs(2)).await;
-    s.key("return").await?;
-    // The shell prompt's "Last login" line shows once Terminal is ready.
-    let deadline = deadline_in(TERMINAL_WAIT);
-    s.wait_for_text("Last login", deadline).await?;
+    open_terminal(s).await?;
     tokio::time::sleep(ACTION_PAUSE).await;
 
     eprintln!("  Enabling Remote Login...");

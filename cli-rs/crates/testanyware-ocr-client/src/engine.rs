@@ -21,6 +21,42 @@ use std::path::PathBuf;
 use crate::bridge::{OcrBridgeError, OcrChildBridge, OcrChildBridgeConfig};
 use crate::detection::OcrDetection;
 
+/// The longest time that one Vision recognition may take. A frame of 1024x768
+/// takes about 1.5 s. On 2026-11-22, on macOS 27.2.1, some requests waited
+/// for the Neural Engine and never returned.
+#[cfg(target_os = "macos")]
+const VISION_DEADLINE: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// Recognise text with Vision on a thread of its own, bounded by
+/// [`VISION_DEADLINE`]. `performRequests` is synchronous and blocking, and its
+/// Objective-C objects are not `Send`, so only the `Vec<OcrDetection>` crosses
+/// back. The thread is a detached `std::thread`, not `spawn_blocking`: a started
+/// blocking task cannot be aborted, and the drop of a runtime "waits forever"
+/// for it (<https://docs.rs/tokio/1.52.1/tokio/runtime/struct.Runtime.html>).
+/// After a timeout the stuck thread stays parked, and the process can still
+/// exit.
+#[cfg(target_os = "macos")]
+async fn recognize_with_vision(png: &[u8]) -> Result<Vec<OcrDetection>, OcrBridgeError> {
+    let png = png.to_vec();
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    std::thread::Builder::new()
+        .name("testanyware-vision".into())
+        .spawn(move || {
+            // The receiver is gone after a timeout. The result is then not needed.
+            let _ = tx.send(crate::vision::recognize(&png));
+        })
+        .map_err(|e| {
+            OcrBridgeError::PermanentlyUnavailable(format!("Vision OCR thread did not start: {e}"))
+        })?;
+    match tokio::time::timeout(VISION_DEADLINE, rx).await {
+        Ok(Ok(result)) => result,
+        Ok(Err(_)) => Err(OcrBridgeError::PermanentlyUnavailable(
+            "Vision OCR thread ended without a result".into(),
+        )),
+        Err(_) => Err(OcrBridgeError::ResponseTimeout),
+    }
+}
+
 /// Override the Python interpreter used for the EasyOCR daemon. Listed in
 /// `docs/reference/env-vars.md`.
 const PYTHON_ENV: &str = "TESTANYWARE_OCR_PYTHON";
@@ -161,21 +197,8 @@ impl OcrEngine {
     pub async fn recognize(&self, png: &[u8]) -> Result<Vec<OcrDetection>, OcrBridgeError> {
         match self {
             OcrEngine::Daemon(bridge) => bridge.recognize(png).await,
-            // Vision's `performRequests` is synchronous and blocking, and
-            // its Objective-C objects are not `Send`. Run it on the
-            // blocking pool so it never stalls the async reactor and only
-            // the `Send` `Vec<OcrDetection>` crosses back.
             #[cfg(target_os = "macos")]
-            OcrEngine::Vision => {
-                let png = png.to_vec();
-                tokio::task::spawn_blocking(move || crate::vision::recognize(&png))
-                    .await
-                    .map_err(|e| {
-                        OcrBridgeError::PermanentlyUnavailable(format!(
-                            "Vision OCR task failed to complete: {e}"
-                        ))
-                    })?
-            }
+            OcrEngine::Vision => recognize_with_vision(png).await,
             // Windows.Media.Ocr's WinRT calls are synchronous (driven to
             // completion via IAsyncOperation::join) and its WinRT objects are
             // not `Send`, so — exactly like Vision — run on the blocking pool
