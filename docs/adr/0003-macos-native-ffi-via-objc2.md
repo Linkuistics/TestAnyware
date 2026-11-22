@@ -6,6 +6,8 @@ Date: 2026-05-31
 
 Accepted
 
+<!-- tc: pending because the conversion has not reached this part of the document -->
+
 ## Context
 
 ADR-0002 adopted per-platform OCR engine selection and deferred one
@@ -67,3 +69,10 @@ sequence and its coordinate flip — but is not compiled or linked.
   the next facility will copy.
 - **This decision retires the last reason to keep any Swift alive in the
   OCR path**, consistent with the grove goal of deleting `cli/`.
+
+<!-- tc: on -->
+
+- The Vision call runs in a worker child, the hidden command
+  `testanyware _vision-ocr`, not in the process of the command. ADR-0002
+  records why, in its section "Vision runs in a worker child". The objc2
+  binding is the same in both places.

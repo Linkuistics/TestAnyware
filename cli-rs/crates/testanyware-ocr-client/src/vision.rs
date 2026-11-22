@@ -11,10 +11,11 @@
 //!
 //! The single entry point [`recognize`] is **synchronous and blocking**:
 //! `VNImageRequestHandler::performRequests` runs the recognizer inline.
-//! The async `OcrEngine::recognize` wraps it in `spawn_blocking` so the
-//! Objective-C objects (none of which are `Send`) live and die on one
-//! blocking-pool thread and only the `Send` `Vec<OcrDetection>` crosses
-//! back to the async caller.
+//! Only the Vision worker calls it (`crate::vision_worker`, ADR-0002). On
+//! macOS 27.2.1 a request sometimes never returns, and every later request
+//! of the process then waits behind it. The worker is a child process, so
+//! the engine can stop it and start a new one. The ignored test
+//! `repeated_requests_return` shows whether that fault still occurs.
 //!
 //! Coordinate space: Vision reports `boundingBox` normalized to `[0, 1]`
 //! with the **origin at the image's lower-left corner**. The host
@@ -176,5 +177,39 @@ mod tests {
     fn rejects_non_png_bytes_as_unavailable() {
         let err = recognize(b"definitely not a png").unwrap_err();
         assert_eq!(err.code(), "OCR_UNAVAILABLE");
+    }
+
+    /// Send many requests in this process on one frame of 1024x768, each
+    /// bounded by 30 s, and fail at the first that does not return. On macOS
+    /// 27.2.1 this failed within 3000 requests in 4 of 5 runs, so a pass of
+    /// several runs shows that the fault of ADR-0002 is gone.
+    /// `TESTANYWARE_VISION_STRESS_COUNT` sets the count (default 3000). Run it
+    /// with `task ocr:vision-hang-repro`.
+    #[test]
+    #[ignore = "a stress test of several minutes; run it with task ocr:vision-hang-repro"]
+    fn repeated_requests_return() {
+        const FRAME: &[u8] = include_bytes!("../tests/fixtures/vision-stress-1024x768.png");
+        let count: u32 = std::env::var("TESTANYWARE_VISION_STRESS_COUNT")
+            .map(|c| {
+                c.parse()
+                    .expect("TESTANYWARE_VISION_STRESS_COUNT is a number")
+            })
+            .unwrap_or(3000);
+        // The first request of a new binary path may wait for a model compile.
+        let mut deadline = std::time::Duration::from_secs(120);
+        for i in 1..=count {
+            let (tx, rx) = std::sync::mpsc::channel();
+            std::thread::spawn(move || {
+                let _ = tx.send(recognize(FRAME));
+            });
+            match rx.recv_timeout(deadline) {
+                Ok(result) => assert!(!result.expect("the request failed").is_empty()),
+                Err(_) => panic!("request {i} of {count} did not return in {deadline:?}"),
+            }
+            deadline = std::time::Duration::from_secs(30);
+            if i % 500 == 0 {
+                eprintln!("{i} of {count} requests returned");
+            }
+        }
     }
 }

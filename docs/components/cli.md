@@ -63,8 +63,9 @@ cargo test  --test cli-contract          # the CLI design contract gate specific
 Native capability is selected per host via `#[cfg(target_os = ...)]` rather than
 a lowest-common-denominator everywhere:
 
-- **OCR** (`screen find-text`): Apple Vision on macOS, and an EasyOCR daemon
-  (`OcrChildBridge`) on Linux/Windows — the `OcrEngine` seam (ADR-0002).
+- **OCR** (`screen find-text`): Apple Vision on macOS, in the worker child
+  `testanyware _vision-ocr`, and an EasyOCR daemon (`OcrChildBridge`) on
+  Linux/Windows — the `OcrEngine` seam (ADR-0002).
 - **Video** (`screen record`): AVFoundation/VideoToolbox via `objc2` on macOS, and
   `ffmpeg-next` on Linux/Windows — the `VideoEncoder` seam (ADR-0006).
 

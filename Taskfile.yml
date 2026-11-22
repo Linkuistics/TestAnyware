@@ -1297,6 +1297,14 @@ tasks:
     cmds:
       - cargo test --workspace
 
+  ocr:vision-hang-repro:
+    desc: 'Does Apple Vision still hang on this macOS host (ADR-0002)? Sends COUNT requests (default 3000) on one frame in one process, each bounded by 30 s, and fails at the first that does not return. On macOS 27.2.1 it failed in 4 of 5 runs. Several passes show that the worker child of the Vision engine may no longer be needed. Up to about 5 minutes'
+    dir: '{{.CLI_DIR}}'
+    env:
+      TESTANYWARE_VISION_STRESS_COUNT: '{{.COUNT | default "3000"}}'
+    cmds:
+      - cargo test -p testanyware-ocr-client --lib -- --ignored --nocapture repeated_requests_return
+
   app:test:
     desc: Test the TestAnyware app, its protocol crate and its client crate. The tests run the real app executable in test mode (macOS or Linux host)
     dir: '{{.CLI_DIR}}'
@@ -1702,18 +1710,22 @@ tasks:
   vm:ipsw-base-live:
     desc: 'Does `ensure_base_vm` build the base VM of the latest macOS 27 release (testanyware-base-macos-<version>-<build>) from Apple''s IPSW, and does the result pass its contract (SSH admin/admin, passwordless sudo, auto-login, no sleep)? It builds nothing when that base exists. Then it deletes the older macOS 27 bases and the cached IPSWs of other releases, as golden creation does. A new release downloads about 25 GB. The install takes about 4 minutes and Setup Assistant about 5 more. Run from a terminal that may reach guest IPs (macOS Local Network permission)'
     dir: '{{.CLI_DIR}}'
+    deps: [cli:build]
     env:
       TESTANYWARE_LIVE_IPSW_BASE: '1'
+      TESTANYWARE_VISION_WORKER: '{{.BIN}}'
     cmds:
       - cargo test -p testanyware-vm --test ipsw-base-live -- --ignored --nocapture ensure_base_vm_live
 
   vm:setup-assistant-live:
     desc: 'Iterate on the Setup Assistant driver: run it against a clone of a never-booted IPSW VM, then check the result. Needs FRESH=<vm> (make one with `tart create <vm> --from-ipsw <cached ipsw>`); about 5 minutes, no reinstall. Keeps the clone as testanyware-base-livetest'
     dir: '{{.CLI_DIR}}'
+    deps: [cli:build]
     env:
       TESTANYWARE_LIVE_IPSW_BASE: '1'
       TESTANYWARE_IPSW_FRESH_VM: '{{.FRESH}}'
       TESTANYWARE_IPSW_KEEP: '1'
+      TESTANYWARE_VISION_WORKER: '{{.BIN}}'
     preconditions:
       - sh: test -n "{{.FRESH}}"
         msg: 'set FRESH=<a never-booted VM made by `tart create --from-ipsw`>'

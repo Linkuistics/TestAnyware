@@ -9,7 +9,7 @@ Accepted
 ## Context
 
 ADR-0002 adopted per-platform OCR engine selection at the `OcrEngine` seam
-(`testanyware-ocr-client/src/engine.rs`): macOS uses in-process Apple Vision,
+(`testanyware-ocr-client/src/engine.rs`): macOS uses Apple Vision,
 Linux/Windows use the EasyOCR Python daemon (`OcrChildBridge`). That mapping
 broke on **Windows aarch64**: EasyOCR is **uninstallable on win-arm64** —
 `opencv-python-headless` (a hard dependency) ships no `win_arm64` wheel on PyPI,

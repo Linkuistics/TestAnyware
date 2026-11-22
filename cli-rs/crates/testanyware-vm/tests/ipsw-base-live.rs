@@ -13,17 +13,24 @@
 //! tart create my-fresh-27 --from-ipsw ~/.local/share/testanyware/cache/macos-27.2.1-26B131.ipsw
 //! ```
 //!
-//! then run the driver against a clone of it, as often as needed:
+//! then run the driver against a clone of it, as often as needed
+//! (`task vm:setup-assistant-live FRESH=my-fresh-27` runs the same):
 //!
 //! ```text
+//! cargo build -p testanyware-cli
 //! TESTANYWARE_LIVE_IPSW_BASE=1 TESTANYWARE_IPSW_FRESH_VM=my-fresh-27 \
+//!   TESTANYWARE_VISION_WORKER=target/debug/testanyware \
 //!   cargo test -p testanyware-vm --test ipsw-base-live -- --ignored --nocapture configure_fresh_clone_live
 //! ```
+//!
+//! The OCR of the driver runs Vision in a worker child, the hidden command
+//! `testanyware _vision-ocr` (ADR-0002). A test binary is not `testanyware`, so
+//! `TESTANYWARE_VISION_WORKER` names the CLI binary.
 //!
 //! ## The whole path, as `vm create-golden --version 27` runs it
 //!
 //! ```text
-//! TESTANYWARE_LIVE_IPSW_BASE=1 \
+//! TESTANYWARE_LIVE_IPSW_BASE=1 TESTANYWARE_VISION_WORKER=target/debug/testanyware \
 //!   cargo test -p testanyware-vm --test ipsw-base-live -- --ignored --nocapture ensure_base_vm_live
 //! ```
 //!

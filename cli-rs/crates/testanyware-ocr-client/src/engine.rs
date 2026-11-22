@@ -3,58 +3,101 @@
 //! Per ADR-0002 the host picks the best *native* OCR facility for the
 //! platform it runs on, rather than forcing one engine everywhere:
 //!
-//!   - **macOS**  → in-process Apple Vision by default; the EasyOCR
-//!     daemon only when `TESTANYWARE_OCR_FALLBACK=1`.
+//!   - **macOS**  → Apple Vision in a worker child by default (ADR-0002); the
+//!     EasyOCR daemon only when `TESTANYWARE_OCR_FALLBACK=1`.
 //!   - **Windows** → in-process native Windows.Media.Ocr, unconditionally
 //!     (ADR-0011 — no fallback env; EasyOCR is uninstallable on win-arm64).
 //!   - **Linux** → the EasyOCR Python daemon ([`OcrChildBridge`]).
 //!
 //! The macOS Vision engine (ADR-0003, leaf `040-macos-vision-ocr`) is a
-//! pure-Rust `objc2` binding in [`crate::vision`]; [`OcrEngine::detect`]
-//! selects it on macOS unless `TESTANYWARE_OCR_FALLBACK=1`. The Windows
+//! pure-Rust `objc2` binding in [`crate::vision`]. It runs in the worker of
+//! [`crate::vision_worker`], the hidden command `testanyware _vision-ocr`,
+//! because a Vision request can hang its process on macOS 27.2.1 (ADR-0002).
+//! [`OcrEngine::detect`] selects it on macOS unless
+//! `TESTANYWARE_OCR_FALLBACK=1`. The Windows
 //! engine (ADR-0011, leaf `220/070-windows-media-ocr-engine`) is a pure-Rust
 //! WinRT binding in [`crate::windows_ocr`]; `detect()` selects it on Windows
 //! unconditionally.
 
 use std::path::PathBuf;
+#[cfg(target_os = "macos")]
+use std::time::Duration;
 
 use crate::bridge::{OcrBridgeError, OcrChildBridge, OcrChildBridgeConfig};
 use crate::detection::OcrDetection;
 
-/// The longest time that one Vision recognition may take. A frame of 1024x768
-/// takes about 1.5 s. On 2026-11-22, on macOS 27.2.1, some requests waited
-/// for the Neural Engine and never returned.
+/// The hidden command of the `testanyware` binary that runs the Vision worker.
 #[cfg(target_os = "macos")]
-const VISION_DEADLINE: std::time::Duration = std::time::Duration::from_secs(30);
+const VISION_WORKER_COMMAND: &str = "_vision-ocr";
 
-/// Recognise text with Vision on a thread of its own, bounded by
-/// [`VISION_DEADLINE`]. `performRequests` is synchronous and blocking, and its
-/// Objective-C objects are not `Send`, so only the `Vec<OcrDetection>` crosses
-/// back. The thread is a detached `std::thread`, not `spawn_blocking`: a started
-/// blocking task cannot be aborted, and the drop of a runtime "waits forever"
-/// for it (<https://docs.rs/tokio/1.52.1/tokio/runtime/struct.Runtime.html>).
-/// After a timeout the stuck thread stays parked, and the process can still
-/// exit.
+/// The binary that runs the Vision worker, when it is not the running binary.
+/// A test binary of the workspace sets it to `target/debug/testanyware`. Listed
+/// in `docs/reference/env-vars.md`.
 #[cfg(target_os = "macos")]
-async fn recognize_with_vision(png: &[u8]) -> Result<Vec<OcrDetection>, OcrBridgeError> {
-    let png = png.to_vec();
-    let (tx, rx) = tokio::sync::oneshot::channel();
-    std::thread::Builder::new()
-        .name("testanyware-vision".into())
-        .spawn(move || {
-            // The receiver is gone after a timeout. The result is then not needed.
-            let _ = tx.send(crate::vision::recognize(&png));
-        })
-        .map_err(|e| {
-            OcrBridgeError::PermanentlyUnavailable(format!("Vision OCR thread did not start: {e}"))
-        })?;
-    match tokio::time::timeout(VISION_DEADLINE, rx).await {
-        Ok(Ok(result)) => result,
-        Ok(Err(_)) => Err(OcrBridgeError::PermanentlyUnavailable(
-            "Vision OCR thread ended without a result".into(),
-        )),
-        Err(_) => Err(OcrBridgeError::ResponseTimeout),
+const VISION_WORKER_ENV: &str = "TESTANYWARE_VISION_WORKER";
+
+/// The time for the worker to write `{"ready": true}`. It writes that line
+/// before it loads Vision.
+#[cfg(target_os = "macos")]
+const VISION_READY_DEADLINE: Duration = Duration::from_secs(10);
+
+/// The time for the first request of a worker. `aned` compiles the model of
+/// Vision once for a new binary, which took 28 s to 36 s on 2026-11-22, so the
+/// first request after an install or a build can take that long.
+#[cfg(target_os = "macos")]
+const VISION_FIRST_CALL_DEADLINE: Duration = Duration::from_secs(90);
+
+/// The time for a later request. A frame of 1024x768 takes less than 0.3 s.
+/// On macOS 27.2.1 some requests never return.
+#[cfg(target_os = "macos")]
+const VISION_CALL_DEADLINE: Duration = Duration::from_secs(30);
+
+/// The worker binary: `TESTANYWARE_VISION_WORKER` when set, otherwise the
+/// running binary, which is `testanyware` in production.
+#[cfg(target_os = "macos")]
+fn vision_worker_binary() -> PathBuf {
+    match std::env::var_os(VISION_WORKER_ENV) {
+        Some(p) if !p.is_empty() => PathBuf::from(p),
+        _ => std::env::current_exe().unwrap_or_else(|_| PathBuf::from("testanyware")),
     }
+}
+
+/// The bridge configuration that runs `binary _vision-ocr` as the worker.
+#[cfg(target_os = "macos")]
+fn vision_worker_config(binary: &std::path::Path) -> OcrChildBridgeConfig {
+    OcrChildBridgeConfig::new(binary)
+        .with_arguments(vec![VISION_WORKER_COMMAND.into()])
+        .with_warm_deadline(VISION_READY_DEADLINE)
+        .with_first_call_deadline(VISION_FIRST_CALL_DEADLINE)
+        .with_call_deadline(VISION_CALL_DEADLINE)
+}
+
+/// Send one request to the worker. After a timeout or a crash the bridge has
+/// stopped the worker, so the request goes once more to a new worker. A hung
+/// Vision request wedges its process, and a new process recovers.
+#[cfg(target_os = "macos")]
+async fn recognize_in_worker(
+    bridge: &OcrChildBridge,
+    worker: &std::path::Path,
+    png: &[u8],
+) -> Result<Vec<OcrDetection>, OcrBridgeError> {
+    let result = match bridge.recognize(png).await {
+        Err(e @ (OcrBridgeError::ResponseTimeout | OcrBridgeError::ChildCrashed)) => {
+            eprintln!("testanyware: the Vision worker failed ({e}); trying a new worker");
+            bridge.recognize(png).await
+        }
+        other => other,
+    };
+    result.map_err(|e| match e {
+        OcrBridgeError::PermanentlyUnavailable(reason) => {
+            OcrBridgeError::PermanentlyUnavailable(format!(
+                "{reason} (Vision worker: {} {VISION_WORKER_COMMAND}; \
+                 {VISION_WORKER_ENV} names another binary)",
+                worker.display()
+            ))
+        }
+        other => other,
+    })
 }
 
 /// Override the Python interpreter used for the EasyOCR daemon. Listed in
@@ -131,11 +174,13 @@ pub fn resolve_interpreter() -> PathBuf {
 pub enum OcrEngine {
     /// EasyOCR Python daemon via the long-lived child bridge.
     Daemon(OcrChildBridge),
-    /// In-process Apple Vision (macOS native, ADR-0003). Stateless: each
-    /// `recognize` builds its own `VNImageRequestHandler`, so the variant
-    /// carries no data.
+    /// Apple Vision (macOS native, ADR-0003) in a worker child (ADR-0002).
+    /// `worker` is the binary that the bridge runs with `_vision-ocr`.
     #[cfg(target_os = "macos")]
-    Vision,
+    Vision {
+        bridge: OcrChildBridge,
+        worker: PathBuf,
+    },
     /// In-process native Windows.Media.Ocr (ADR-0011). Stateless: each
     /// `recognize` builds its own WinRT `OcrEngine`, so the variant carries no
     /// data.
@@ -147,7 +192,7 @@ impl OcrEngine {
     /// Select the engine for the current platform and environment.
     pub fn detect() -> Self {
         // Per-platform native-facility selection (ADR-0002 / ADR-0003 / ADR-0011):
-        //   macOS   → in-process Apple Vision by default; the EasyOCR
+        //   macOS   → Apple Vision in a worker child by default; the EasyOCR
         //             daemon when TESTANYWARE_OCR_FALLBACK=1.
         //   Windows → in-process native Windows.Media.Ocr, unconditionally
         //             (no fallback env — EasyOCR is uninstallable on win-arm64).
@@ -157,7 +202,7 @@ impl OcrEngine {
             if fallback_requested() {
                 Self::daemon()
             } else {
-                OcrEngine::Vision
+                Self::vision(vision_worker_binary())
             }
         }
         #[cfg(windows)]
@@ -180,6 +225,13 @@ impl OcrEngine {
         )))
     }
 
+    /// The Vision engine with `worker` as the binary of its worker.
+    #[cfg(target_os = "macos")]
+    fn vision(worker: PathBuf) -> Self {
+        let bridge = OcrChildBridge::new(vision_worker_config(&worker));
+        OcrEngine::Vision { bridge, worker }
+    }
+
     /// The `engine` token reported in the `--json` envelope and the
     /// `OcrResponse.engine` field — `"easyocr_daemon"`, `"vision"`, or
     /// `"windows_media_ocr"`.
@@ -187,7 +239,7 @@ impl OcrEngine {
         match self {
             OcrEngine::Daemon(_) => "easyocr_daemon",
             #[cfg(target_os = "macos")]
-            OcrEngine::Vision => "vision",
+            OcrEngine::Vision { .. } => "vision",
             #[cfg(windows)]
             OcrEngine::WindowsMediaOcr => "windows_media_ocr",
         }
@@ -198,11 +250,11 @@ impl OcrEngine {
         match self {
             OcrEngine::Daemon(bridge) => bridge.recognize(png).await,
             #[cfg(target_os = "macos")]
-            OcrEngine::Vision => recognize_with_vision(png).await,
+            OcrEngine::Vision { bridge, worker } => recognize_in_worker(bridge, worker, png).await,
             // Windows.Media.Ocr's WinRT calls are synchronous (driven to
             // completion via IAsyncOperation::join) and its WinRT objects are
-            // not `Send`, so — exactly like Vision — run on the blocking pool
-            // and let only the `Send` `Vec<OcrDetection>` cross back.
+            // not `Send`, so run on the blocking pool and let only the `Send`
+            // `Vec<OcrDetection>` cross back.
             #[cfg(windows)]
             OcrEngine::WindowsMediaOcr => {
                 let png = png.to_vec();
@@ -217,14 +269,13 @@ impl OcrEngine {
         }
     }
 
-    /// Terminate any long-lived subprocess. Idempotent. The in-process native
-    /// engines (Vision, Windows.Media.Ocr) hold no subprocess, so their arms
-    /// are no-ops.
+    /// Terminate any long-lived subprocess: the daemon or the Vision worker.
+    /// Idempotent. Windows.Media.Ocr runs in process, so its arm is a no-op.
     pub async fn shutdown(&self) {
         match self {
             OcrEngine::Daemon(bridge) => bridge.shutdown().await,
             #[cfg(target_os = "macos")]
-            OcrEngine::Vision => {}
+            OcrEngine::Vision { bridge, .. } => bridge.shutdown().await,
             #[cfg(windows)]
             OcrEngine::WindowsMediaOcr => {}
         }
@@ -268,6 +319,86 @@ mod tests {
         let engine = OcrEngine::detect();
         assert!(matches!(engine, OcrEngine::WindowsMediaOcr));
         assert_eq!(engine.engine_name(), "windows_media_ocr");
+    }
+
+    /// A Vision engine whose worker is the fake daemon in `behavior`, with
+    /// deadlines of 1 s.
+    #[cfg(target_os = "macos")]
+    fn fake_vision_engine(behavior: &str, env: Vec<(String, String)>) -> OcrEngine {
+        let script = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fake-ocr-daemon.sh");
+        let mut environment = vec![("FAKE_OCR_BEHAVIOR".to_string(), behavior.to_string())];
+        environment.extend(env);
+        let config = OcrChildBridgeConfig::new("/bin/bash")
+            .with_arguments(vec![script.to_string_lossy().into_owned()])
+            .with_environment(environment)
+            .with_warm_deadline(Duration::from_secs(5))
+            .with_first_call_deadline(Duration::from_secs(1))
+            .with_call_deadline(Duration::from_secs(1));
+        OcrEngine::Vision {
+            bridge: OcrChildBridge::new(config),
+            worker: script,
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    #[tokio::test]
+    async fn vision_survives_a_hung_worker_on_a_new_worker() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let marker = dir.path().join("first-child-hung");
+        let engine = fake_vision_engine(
+            "hang_first_child_then_echo",
+            vec![(
+                "FAKE_OCR_MARKER".into(),
+                marker.to_string_lossy().into_owned(),
+            )],
+        );
+        let detections = engine
+            .recognize(&[0x89])
+            .await
+            .expect("the second worker answers");
+        assert!(
+            marker.exists(),
+            "the first worker took the request and hung"
+        );
+        assert_eq!(detections[0].text, "fake");
+        // The new worker stays and answers the next request.
+        engine
+            .recognize(&[0x89])
+            .await
+            .expect("the new worker answers again");
+        engine.shutdown().await;
+    }
+
+    #[cfg(target_os = "macos")]
+    #[tokio::test]
+    async fn vision_gives_up_after_one_new_worker() {
+        let engine = fake_vision_engine("ready_then_hang", Vec::new());
+        let started = std::time::Instant::now();
+        let err = engine.recognize(&[0x89]).await.unwrap_err();
+        assert_eq!(err.code(), "OCR_TIMEOUT");
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "two attempts of 1 s each"
+        );
+        engine.shutdown().await;
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn the_vision_worker_is_the_running_binary_unless_named() {
+        let prev = std::env::var_os(VISION_WORKER_ENV);
+        std::env::remove_var(VISION_WORKER_ENV);
+        assert_eq!(vision_worker_binary(), std::env::current_exe().unwrap());
+        std::env::set_var(VISION_WORKER_ENV, "/opt/x/testanyware");
+        assert_eq!(vision_worker_binary(), PathBuf::from("/opt/x/testanyware"));
+        let config = vision_worker_config(&vision_worker_binary());
+        assert_eq!(config.daemon_arguments, vec!["_vision-ocr".to_string()]);
+        assert_eq!(config.first_call_deadline, VISION_FIRST_CALL_DEADLINE);
+        assert_eq!(config.call_deadline, VISION_CALL_DEADLINE);
+        match prev {
+            Some(v) => std::env::set_var(VISION_WORKER_ENV, v),
+            None => std::env::remove_var(VISION_WORKER_ENV),
+        }
     }
 
     #[cfg(target_os = "macos")]

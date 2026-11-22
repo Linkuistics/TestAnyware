@@ -6,6 +6,8 @@ Date: 2026-05-30
 
 Accepted
 
+<!-- tc: pending because the conversion has not reached this part of the document -->
+
 ## Context
 
 The host CLI's `screen find-text` needs OCR over a captured guest
@@ -34,7 +36,8 @@ in a code comment.
 Adopt **per-platform OCR engine selection**, reversing "EasyOCR
 everywhere":
 
-- macOS → in-process Apple **Vision** by default; the EasyOCR daemon when
+- macOS → Apple **Vision** by default, in a worker child process (see
+  "Vision runs in a worker child" below); the EasyOCR daemon when
   `TESTANYWARE_OCR_FALLBACK=1`.
 - Linux / Windows → the EasyOCR Python **daemon** (`OcrChildBridge`).
 
@@ -66,7 +69,7 @@ OCR, consistent with `TESTANYWARE_OCR_FALLBACK` semantics.
 - The macOS-default-Vision behaviour documented in `env-vars.md` was not
   literally true when this ADR was written (macOS used the daemon).
   **Resolved by leaf `040-macos-vision-ocr`:** `OcrEngine::detect()` now
-  returns the in-process `OcrEngine::Vision` on macOS unless
+  returns `OcrEngine::Vision` on macOS unless
   `TESTANYWARE_OCR_FALLBACK=1`, so `env-vars.md` is accurate and this
   caveat is closed.
 - **Live Vision-OCR verification is closed** by the live-VM gate
@@ -76,3 +79,41 @@ OCR, consistent with `TESTANYWARE_OCR_FALLBACK` semantics.
   text with a plausible bounding box; the gate also best-effort-exercises the
   `TESTANYWARE_OCR_FALLBACK=1` daemon path for parity. This was the live check
   `040-macos-vision-ocr` deferred to the gate.
+
+<!-- tc: on -->
+
+## Vision runs in a worker child
+
+On macOS 27.2.1 a Vision text request sometimes never returns. Every later
+request of that process then waits too, and only a new process recovers.
+`docs/research/vision-ocr-hang-macos-27.md` holds the reproduction. In
+process, a hang stopped the base build of a golden in 3 of 5 runs.
+
+So the macOS engine runs Vision in a worker child: the `testanyware`
+binary with the hidden command `_vision-ocr`. The worker speaks the
+protocol of the EasyOCR daemon, so `OcrChildBridge` owns the deadlines. The
+bridge stops a worker after a timeout and starts a new one for the next
+request.
+
+The engine sends a request once more to a new worker after a timeout or a
+crash. The first request of a worker has 90 s, because `aned` compiles the
+model of Vision once for a new binary. A later request has 30 s. A test
+binary is not `testanyware`, so `TESTANYWARE_VISION_WORKER` names the
+worker binary.
+
+The trade-off is a child process for each engine and about 0.2 s at its
+start, against an engine that survives the hang. These alternatives were
+rejected:
+
+- **Vision in process with a deadline.** The driver does not wait for ever,
+  but every later request of the process hangs, so the build still fails.
+- **The CPU compute device.** It hung at the same rate. The text recogniser
+  uses the Neural Engine whatever device the request names.
+- **Another setting for the next request**, such as revision 2 or no
+  language correction. Each one hung after the first hang.
+- **A worker binary of its own.** The release would ship and find a second
+  binary. The hidden command needs no change to the packages.
+
+`task ocr:vision-hang-repro` shows whether the fault still occurs. When
+several runs pass on a later macOS, the engine can run Vision in process
+again.

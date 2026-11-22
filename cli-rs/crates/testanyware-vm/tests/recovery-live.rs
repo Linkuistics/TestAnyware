@@ -10,9 +10,15 @@
 //! ## How to run
 //!
 //! ```text
-//! TESTANYWARE_LIVE_RECOVERY=1 cargo test -p testanyware-vm --test recovery-live \
+//! cargo build -p testanyware-cli
+//! TESTANYWARE_LIVE_RECOVERY=1 TESTANYWARE_VISION_WORKER=target/debug/testanyware \
+//!   cargo test -p testanyware-vm --test recovery-live \
 //!     -- --ignored --nocapture recovery_disable_sip_live
 //! ```
+//!
+//! The OCR of the driver runs Vision in a worker child, the hidden command
+//! `testanyware _vision-ocr` (ADR-0002). A test binary is not `testanyware`, so
+//! `TESTANYWARE_VISION_WORKER` names the CLI binary.
 //!
 //! Two guards keep the normal suite VM-free: the test is `#[ignore]`d, and even
 //! under `--ignored` it early-returns unless `TESTANYWARE_LIVE_RECOVERY=1`.

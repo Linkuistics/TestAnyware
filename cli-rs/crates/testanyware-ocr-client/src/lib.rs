@@ -13,15 +13,18 @@
 //! child usable.
 //!
 //! Engine selection is per-platform, not one-engine-everywhere (ADR-0002,
-//! reversing the earlier "EasyOCR everywhere" call): macOS uses in-process
-//! Apple Vision (`vision`, ADR-0003), Linux/Windows use this daemon. See
-//! [`engine`] for the `#[cfg]` dispatch seam.
+//! reversing the earlier "EasyOCR everywhere" call): macOS uses Apple Vision
+//! (`vision`, ADR-0003) in a worker child that speaks this same protocol
+//! (`vision_worker`, ADR-0002), Windows uses Windows.Media.Ocr in process,
+//! and Linux uses this daemon. See [`engine`] for the `#[cfg]` dispatch seam.
 //!
 //! Crate layout:
 //!
 //! - `bridge`: long-lived child-process actor (`OCRChildBridge`).
 //! - `engine`: per-platform `OcrEngine` selection + interpreter resolution.
-//! - `vision`: in-process Apple Vision engine via `objc2` (macOS only).
+//! - `vision`: the Apple Vision call via `objc2` (macOS only).
+//! - `vision_worker`: the child process that runs `vision` for the engine
+//!   (macOS only, ADR-0002).
 //! - `windows_ocr`: in-process native Windows.Media.Ocr engine via the
 //!   `windows` WinRT crate (Windows only, ADR-0011).
 //! - `detection`: the `OcrDetection` value type and `OcrResponse`
@@ -40,6 +43,8 @@ pub mod find;
 pub mod status;
 #[cfg(target_os = "macos")]
 mod vision;
+#[cfg(target_os = "macos")]
+mod vision_worker;
 #[cfg(windows)]
 mod windows_ocr;
 
@@ -48,3 +53,24 @@ pub use detection::{OcrDetection, OcrResponse};
 pub use engine::{resolve_interpreter, OcrEngine};
 pub use find::{find_text, FindOutcome};
 pub use status::{OcrStatus, OcrStatusFile};
+
+/// Run the Vision worker on stdin and stdout until stdin ends, and return the
+/// exit status. The hidden command `testanyware _vision-ocr` calls it
+/// (ADR-0002). Vision exists only on macOS, so elsewhere it fails.
+pub fn run_vision_worker() -> i32 {
+    #[cfg(target_os = "macos")]
+    {
+        match vision_worker::serve(std::io::stdin().lock(), std::io::stdout().lock()) {
+            Ok(()) => 0,
+            Err(e) => {
+                eprintln!("testanyware: the Vision worker stopped: {e}");
+                1
+            }
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        eprintln!("testanyware: the Vision worker exists only on macOS");
+        2
+    }
+}

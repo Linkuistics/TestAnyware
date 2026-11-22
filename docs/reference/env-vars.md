@@ -15,7 +15,8 @@ parent shell before calling `testanyware` or a script under
 | `TESTANYWARE_PLATFORM` | Target platform: `macos`, `linux`, `windows` | unset | `ConnectionSpec.fromEnvironment()` |
 | `TESTANYWARE_CONFIG` | Another `config.rhai` file for the Host CLI, or `none` to run without one. See [config.rhai](#configrhai). The app does not read this variable | `~/.config/testanyware/config.rhai` | CLI (`testanyware`, every host) |
 | `TESTANYWARE_APP_SOCKET` | **Internal / test-only.** Socket of the TestAnyware app. On a macOS host it replaces the default socket, `~/Library/Application Support/TestAnyware/testanyware.sock`. On a Linux or Windows host it turns on routing through the app. A macOS host needs no variable | unset | CLI (`testanyware`) |
-| `TESTANYWARE_OCR_FALLBACK` | Set to `1` to force the EasyOCR child-bridge path on macOS (otherwise macOS uses in-process Apple Vision) | `0` | `TestAnywareServer` OCR selection |
+| `TESTANYWARE_OCR_FALLBACK` | Set to `1` to force the EasyOCR child-bridge path on macOS (otherwise macOS uses Apple Vision in a worker child, ADR-0002) | `0` | `OcrEngine::detect` in `testanyware-ocr-client` |
+| `TESTANYWARE_VISION_WORKER` | The binary that runs the Vision worker as `<binary> _vision-ocr` (ADR-0002). A test binary sets it to `cli-rs/target/debug/testanyware`, and the live tasks set it | the running binary | macOS OCR engine in `testanyware-ocr-client` |
 | `TESTANYWARE_OCR_PYTHON` | Override the Python interpreter used for the EasyOCR daemon | `python3` on PATH | `TestAnywareServer` OCR bridge |
 | `TESTANYWARE_VNC_DEBUG` | Set to `1` to emit verbose RFB/VNC protocol logging to stderr | `0` | `VNCCapture` |
 | `TESTANYWARE_VNC_ARD_REMAP` | Set to `1` to force Apple Remote Desktop keycode remapping (usually auto-detected) | `0` | `VNCInput` |

@@ -270,9 +270,8 @@ impl RecoverySession {
         Ok(Self { conn, engine: OcrEngine::detect() })
     }
 
-    /// Release the OCR engine's resources (a no-op for in-process Vision; the
-    /// EasyOCR fallback daemon is terminated). Call once when the session's
-    /// recovery work is finished.
+    /// Release the OCR engine's resources: stop the Vision worker or the EasyOCR
+    /// fallback daemon. Call once when the session's recovery work is finished.
     pub async fn shutdown(&self) {
         self.engine.shutdown().await;
     }
@@ -314,9 +313,9 @@ impl RecoverySession {
         self.read_screen().await
     }
 
-    /// Capture a frame and OCR it. A Vision request that hangs fails here with
-    /// `OCR_TIMEOUT` after its deadline. A retry does not help: in the refresh
-    /// of 2026-11-22, the requests after a hung one hung too.
+    /// Capture a frame and OCR it. On macOS the engine sends a request that
+    /// hangs once more to a new Vision worker (ADR-0002), so a second hang
+    /// in a row fails here with `OCR_TIMEOUT`.
     async fn read_screen(&mut self) -> Result<Vec<OcrDetection>, RecoveryError> {
         let png = capture_frame_png(&mut self.conn).await?;
         self.engine.recognize(&png).await.map_err(|e| RecoveryError::Ocr(e.to_string()))

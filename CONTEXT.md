@@ -364,6 +364,14 @@ wider vision pipeline (ADR-0002), distinct from the retired *Shared-VNC
 server*.
 _Avoid_: calling it "the server".
 
+**Vision worker**:
+The child process that runs Apple Vision for the macOS OCR engine: the
+`testanyware` binary with the hidden command `_vision-ocr`. It speaks the
+protocol of the *OCR daemon* through `OcrChildBridge`. On macOS 27.2.1 a
+Vision request can hang its process. So the engine stops a worker that does
+not answer and starts a new one (ADR-0002).
+_Avoid_: calling it the OCR daemon, which hosts EasyOCR.
+
 **Embedded viewer**:
 The Rust CLI's `testanyware viewer` command (and the `vm start --viewer`
 sugar) — an in-process `eframe`/`wgpu` window that renders a live RFB

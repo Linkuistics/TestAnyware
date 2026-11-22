@@ -11,13 +11,14 @@ description = "Host-side client for the TestAnyware EasyOCR Python daemon."
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
-# "rt" is needed for tokio::task::spawn_blocking, which the macOS Vision
-# engine uses to run the blocking, non-Send Apple Vision call off-reactor.
+# "rt" is needed for tokio::task::spawn_blocking, which the Windows engine
+# uses to run its blocking, non-Send call off-reactor.
 tokio = { workspace = true, features = ["process", "io-util", "fs", "sync", "time", "macros", "rt"] }
 tempfile = { workspace = true }
 directories = { workspace = true }
 
-# macOS-only: in-process Apple Vision OCR engine (ADR-0003). Pure-Rust
+# macOS-only: the Apple Vision OCR engine (ADR-0003), which runs in the
+# worker child of ADR-0002. Pure-Rust
 # objc2 bindings — no Swift toolchain at build time. Non-macOS builds never
 # see these crates.
 [target.'cfg(target_os = "macos")'.dependencies]

@@ -36,6 +36,19 @@ case "${FAKE_OCR_BEHAVIOR}" in
         IFS= read -r line
         sleep 86400
         ;;
+    hang_first_child_then_echo)
+        # The first child hangs on its request, as a wedged Vision worker
+        # does. A later child finds $FAKE_OCR_MARKER and answers.
+        echo '{"ready": true}'
+        if [ ! -e "${FAKE_OCR_MARKER}" ]; then
+            : > "${FAKE_OCR_MARKER}"
+            IFS= read -r line
+            sleep 86400
+        fi
+        while IFS= read -r line; do
+            echo '{"detections":[{"text":"fake","x":0,"y":0,"width":10,"height":10,"confidence":0.99}],"engine":"fake"}'
+        done
+        ;;
     permission_denied)
         echo "Permission denied" >&2
         exit 126

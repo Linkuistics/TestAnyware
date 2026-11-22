@@ -1439,6 +1439,12 @@ enum Command {
         json: bool,
     },
 
+    /// Internal: run Apple Vision for the OCR engine of a macOS host
+    /// (ADR-0002). The engine spawns it as its worker. It is not part of the
+    /// public contract (§1).
+    #[command(name = "_vision-ocr", hide = true)]
+    VisionOcr,
+
     /// Print stable JSON describing the binary's surface
     #[command(
         long_about = "Print stable JSON describing the binary's surface.\n\n\
@@ -2187,6 +2193,11 @@ async fn main() {
             std::process::exit(err.exit_code());
         }
     };
+    // The Vision worker reads no setting, and its stdout carries only the
+    // protocol of the OCR bridge, so it starts before the file is read.
+    if matches!(cli.command, Command::VisionOcr) {
+        std::process::exit(testanyware_ocr_client::run_vision_worker());
+    }
     // The file `config.rhai` (ADR-0021). `doctor` is the one command that runs with a file that
     // fails.
     let host = host_config::init_from_process();
@@ -2565,6 +2576,7 @@ async fn main() {
         // thread, and `block_on` keeps this arm on it (ADR-0005). No await.
         Command::Viewer { conn } => viewer_cmds::run_viewer(conn.into()),
         Command::Doctor { json } => doctor_cmds::run_doctor(OutputMode::from_flags(json)).await,
+        Command::VisionOcr => unreachable!("the Vision worker ran before the dispatch"),
         Command::Capabilities { json: _ } => run_capabilities(),
         Command::Schema { command } => run_schema(&command),
         Command::LlmInstructions => run_llm_instructions(),

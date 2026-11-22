@@ -33,8 +33,8 @@
 //! test-specific tooling baked into the image (`minimal-images`): a clean Finder
 //! desktop always shows the system **menu bar** (`Apple │ Finder │ File │ Edit │
 //! View │ Go │ Window │ Help`). That one fixture serves three of the four checks,
-//! and macOS is also the host where the in-process Apple **Vision** OCR engine
-//! runs. Override the platform with `TESTANYWARE_LIVE_VM_PLATFORM`, but the four
+//! and macOS is also the host where the Apple **Vision** OCR engine runs (in its
+//! worker child, ADR-0002). Override the platform with `TESTANYWARE_LIVE_VM_PLATFORM`, but the four
 //! checks below assert macOS-specific content, so a non-macOS guest is reported
 //! as unsupported rather than silently passing.
 //!
@@ -53,7 +53,7 @@
 //!    `TESTANYWARE_RFB_ENCODING` override, and assert the decoded captures are
 //!    byte-identical (Raw is ground truth). Proves the live decoders agree.
 //! 4. **Live Vision OCR** — `screen find-text File --json` on this macOS host
-//!    uses the in-process Vision engine; assert `engine == "vision"` and that
+//!    uses the Vision engine; assert `engine == "vision"` and that
 //!    the query is found with a plausible bounding box. **This closes the live
 //!    Vision-OCR check deferred by `040-macos-vision-ocr` (ADR-0002 / 0003).**
 //! 5. **Live screen record** — `screen record --duration 2 --fps 10 --json`
