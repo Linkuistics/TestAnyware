@@ -7,8 +7,11 @@ Date: 2026-11-21
 Accepted. First recorded on 2026-10-19 in grove `gh-issue-6`, leaf `vnc-keeper-design-k19`,
 when each tart guest got a VNC keeper. Reworked in grove `gh-issue-13`, leaf
 `keeper-removal-k2`, when macOS 27.2.1 removed the fault and the owner set the host
-requirement. The evidence is in `docs/research/tart-vnc-reconnect-crash-macos-27.md` and
-`docs/research/tart-vnc-reset-drops-input-macos-27.md`.
+requirement. Reworked again in leaf `first-frame-size-k9`, when the first session after a tart
+boot proved to get a stale size. The evidence is in
+`docs/research/tart-vnc-reconnect-crash-macos-27.md`,
+`docs/research/tart-vnc-reset-drops-input-macos-27.md` and
+`docs/research/tart-vnc-stale-first-size-macos-27.md`.
 
 ## Context
 
@@ -36,6 +39,13 @@ The same run measured the fault of issue #12 again. tart's VNC server drops the 
 reset overtakes before the server reads it. macOS 27.2.1 did not remove that fault. A burst of
 input that a reset followed moved nothing in 3 runs of 3.
 
+On 2026-11-23, without the keeper, a measurement found a third fault on the same host. The
+first RFB session after a tart boot can get ServerInit 1280x720, whatever the screen size of
+the guest. This happens when the client sends ClientInit within a few milliseconds, as the
+Host CLI does. The first command after `vm start` read 1280x720 on 7 of 8 macOS guests. Every
+later session read the real size. A Linux guest and a plain `tart run` had the fault too, so
+it is in tart's VNC server.
+
 ## Decision
 
 **A TestAnyware host on macOS runs the latest release of macOS 27 and the latest release of
@@ -50,6 +60,8 @@ sequenceDiagram
     participant A as TestAnyware app
     S->>T: spawn, detached
     Note over S,T: no other process beside tart
+    S->>T: the VNC size wait: short sessions until ServerInit reports the screen size
+    Note over S,T: each session closes before vm start returns
     C->>A: guest stream
     A->>T: RFB connection, bytes unchanged
     C--)A: the client leaves
@@ -64,6 +76,13 @@ sequenceDiagram
   own connection, and the app relays it (ADR-0004).
 - The app probes the VNC banner of each guest that it adopts, as it probes the agent. The probe
   reads the whole banner before it closes, because the banner is its answer.
+- `vm start` ends with the VNC size wait on each tart guest. It opens short RFB sessions to the
+  guest's VNC server, 250 ms apart, and closes each one after ServerInit. It stops when
+  ServerInit reports the screen size that `vm start` set, or after 30 s. So the first command
+  reads the real size. A wait that reaches 30 s prints a warning, and `vm start` still
+  succeeds.
+- The VNC size wait holds no connection between commands. Its last session closes before
+  `vm start` returns.
 - The fix of issue #12 stays. After the last event of an `input` command, the Host CLI waits
   until the guest shows that it read the input. The fault of that fix is still present on the
   latest host.
@@ -89,7 +108,15 @@ sequenceDiagram
   moves with each release of Apple and of Cirrus Labs. A fixed threshold goes stale, and a
   lookup of the latest release needs the network. The owner put the requirement in the docs.
 - **Remove the fix of issue #12 with the keeper.** Rejected, for the reasons in the decision.
-- **A host requirement, and no keeper.** Chosen.
+- **Make each command wait out the stale first size.** Rejected. A 1x1 frame request came back
+  from the stale surface. A wait before ClientInit costs every command. A first session that
+  waits for a `DesktopSize` change got it within 1 s after `vm start`. After a plain
+  `tart run`, it waited 9 s once and more than 11 s once. The size wait at the end of
+  `vm start` costs one handshake when the size is right, and about 0.27 s when it is stale.
+- **Keep one session open in `vm start` until a `DesktopSize` change arrives.** Rejected. A held
+  session waited more than 11 s for the change once. A new session got the real size 0.27 s
+  after the first, on 7 of 7 guests.
+- **A host requirement, no keeper, and the VNC size wait at the end of `vm start`.** Chosen.
 
 ## Consequences
 
@@ -106,3 +133,8 @@ sequenceDiagram
   keeper.
 - The requirement names macOS 27. Before it names a new major, the idle reproduction and the
   issue #12 control must run on that major.
+- The start output names the stale size and the wait whenever the VNC size wait had to wait. A
+  start whose first session reads the right size prints nothing about it. So the start output
+  shows whether a later release removed the fault.
+- A guest that TestAnyware did not start, such as one behind `--vnc` or `--connect`, gets no
+  size wait. Its first command can read the stale size.

@@ -24,6 +24,9 @@ on this Mac, then move and push `main`.
 - The release notes state the golden rule of ADR-0027. They say that the
   first macOS `vm create-golden` deletes the base VM of 2.9.0 and builds a
   base of the latest release.
+- The release notes say that `vm start` of a tart guest now ends with the
+  VNC size wait. So the first `screen size` or `screen capture` after it
+  reads the real size, not 1280x720.
 
 ## Notes
 

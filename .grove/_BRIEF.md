@@ -45,8 +45,9 @@ of the release leaf, which comes last.
   `docs/adr/0027-each-golden-holds-the-latest-release-of-its-major.md` for
   the golden rule.
 - Research: `docs/research/tart-vnc-reconnect-crash-macos-27.md` for the idle
-  fault, and `docs/research/tart-vnc-reset-drops-input-macos-27.md` for the
-  fault of issue #12.
+  fault, `docs/research/tart-vnc-reset-drops-input-macos-27.md` for the
+  fault of issue #12, and `docs/research/tart-vnc-stale-first-size-macos-27.md`
+  for the stale size of the first session after a boot.
 - Glossary terms: VNC keeper, Base VM, Golden image, TestAnyware app and
   Host-side framebuffer, in `CONTEXT.md`.
 - Test seams, agreed with the owner on 2026-11-21:

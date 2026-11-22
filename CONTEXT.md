@@ -356,6 +356,14 @@ The term survives only because ADRs, research notes and issues reference it.
 _Avoid_: present-tense framing, and "VNC server" or "Shared-VNC server" for a
 client that carried no traffic.
 
+**VNC size wait**:
+The last step of `vm start` for a tart guest. It opens short RFB sessions to the
+guest's [[Host-side framebuffer]] until ServerInit reports the screen size that
+`vm start` set. The first session after a tart boot can get a stale 1280x720,
+and each later session gets the real size (ADR-0018).
+_Avoid_: "keeper" or "warm-up" (it holds no connection after `vm start`), and
+"settle", which names the cleanup of a failed start.
+
 **OCR daemon**:
 The long-lived Python child process (`OcrChildBridge` in
 `testanyware-ocr-client`) that hosts EasyOCR for the Linux/Windows OCR path,
