@@ -203,6 +203,31 @@ pub(crate) fn setup_screens(user: &str, pass: &str) -> Vec<Screen> {
     ]
 }
 
+/// The screens that the walk-through acted on. It tells a retry from a stale view.
+#[derive(Debug, Default)]
+pub(crate) struct Walk {
+    acted: Vec<usize>,
+    last: Option<usize>,
+}
+
+impl Walk {
+    /// Whether the driver acts on the matched screen `idx`.
+    ///
+    /// A screen acts again only when it is the last screen acted on. Then its actions did
+    /// not take, and the wait for it to go ran out. An earlier screen that shows again is a
+    /// stale view: when a sheet closes, its page shows for a moment before the next page.
+    pub(crate) fn should_act(&mut self, idx: usize) -> bool {
+        if self.last != Some(idx) && self.acted.contains(&idx) {
+            return false;
+        }
+        if !self.acted.contains(&idx) {
+            self.acted.push(idx);
+        }
+        self.last = Some(idx);
+        true
+    }
+}
+
 /// Index of the first screen in `screens` whose anchor is on screen.
 pub(crate) fn match_screen(screens: &[Screen], detections: &[OcrDetection]) -> Option<usize> {
     screens.iter().position(|s| s.anchor.present(detections))
@@ -293,6 +318,7 @@ pub(crate) async fn run_setup_assistant(
     let mut last_progress = Instant::now();
     let mut last_nudge: Option<Instant> = None;
     let mut seen_any = false;
+    let mut walk = Walk::default();
 
     loop {
         let dets = s.observe().await?;
@@ -311,9 +337,18 @@ pub(crate) async fn run_setup_assistant(
             tokio::time::sleep(IDLE_POLL).await;
             continue;
         };
+        let current = &screens[idx];
+        if !current.done && !walk.should_act(idx) {
+            // A stale view of a page that is done. It is not progress, so a page that really
+            // shows again still stalls.
+            if last_progress.elapsed() > STALL_WAIT {
+                return Err(stalled(&format!("showed {} again", current.name), &dets));
+            }
+            tokio::time::sleep(IDLE_POLL).await;
+            continue;
+        }
         seen_any = true;
         last_progress = Instant::now();
-        let current = &screens[idx];
         eprintln!("  Setup Assistant: {}", current.name);
         if current.done {
             return Ok(());
@@ -412,6 +447,37 @@ mod tests {
         for (lines, want) in cases {
             assert_eq!(name_of(&s, &dets(lines)), Some(*want), "{lines:?}");
         }
+    }
+
+    fn index_of(screens: &[Screen], name: &str) -> usize {
+        screens.iter().position(|s| s.name == name).unwrap()
+    }
+
+    #[test]
+    fn a_page_that_shows_again_after_its_sheet_is_not_acted_on_again() {
+        // A live 27.2.1 run on 2026-11-22: the Apple Account page showed for a moment after
+        // the skip sheet closed, and the driver ran the page's actions again.
+        let s = setup_screens("admin", "admin");
+        let mut walk = Walk::default();
+        assert!(walk.should_act(index_of(&s, "Apple Account sign-in")));
+        assert!(walk.should_act(index_of(&s, "skip Apple Account (confirm)")));
+        assert!(!walk.should_act(index_of(&s, "Apple Account sign-in")));
+        assert!(walk.should_act(index_of(&s, "terms and conditions")));
+        assert!(walk.should_act(index_of(&s, "licence agreement (confirm)")));
+        assert!(!walk.should_act(index_of(&s, "terms and conditions")));
+        // The form must not be typed again while the account is created.
+        let mut walk = Walk::default();
+        assert!(walk.should_act(index_of(&s, "create account")));
+        assert!(walk.should_act(index_of(&s, "account creation in progress")));
+        assert!(!walk.should_act(index_of(&s, "create account")));
+    }
+
+    #[test]
+    fn a_screen_that_did_not_go_away_is_acted_on_again() {
+        let s = setup_screens("admin", "admin");
+        let mut walk = Walk::default();
+        assert!(walk.should_act(index_of(&s, "language")));
+        assert!(walk.should_act(index_of(&s, "language")));
     }
 
     #[test]

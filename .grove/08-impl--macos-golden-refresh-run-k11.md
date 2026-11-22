@@ -18,6 +18,9 @@ Delete the base, the IPSW and the goldens that ADR-0027 discards.
 - The first refresh stopped at Setup Assistant with a ZRLE fault.
   `setup-assistant-zrle-fault-k10` fixes it first. The failed build kept
   the earlier golden and the older base, as the design requires.
+- `setup-assistant-zrle-fault-k10` fixed the ZRLE fault and a race in the
+  Setup Assistant driver. `task vm:setup-assistant-live` then passed on a
+  never-booted 27.2.1 VM. Its running log holds the evidence.
 - The cache holds `macos-27.2.1-26B131.ipsw` (26 GB) and
   `macos-27.0.1-26A434.ipsw` (27 GB). The refresh needs no download.
 - The auto-mode permission layer of the k7 session refused

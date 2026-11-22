@@ -24,6 +24,10 @@ leaf.
   of its macOS guest. Its next run reported 1280x720 and then 1920x1080, 5 s
   later. So two of three macOS guests reported the stale size at the first
   connection.
+- On 2026-11-22, `setup-assistant-zrle-fault-k10` recorded a fresh
+  27.2.1 boot on the wire. ServerInit gave 1280x720, and a `DesktopSize`
+  change to 1024x768 followed some seconds later. So tart's VNC server
+  itself reports the stale size first.
 
 ## Done when
 

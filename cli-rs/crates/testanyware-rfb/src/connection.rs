@@ -455,10 +455,16 @@ impl<T: AsyncRead + AsyncWrite + Unpin> RfbConnection<T> {
                     let len = u32::from_be_bytes(len_buf) as usize;
                     let mut compressed = vec![0u8; len];
                     self.transport.read_exact(&mut compressed).await?;
+                    // tart's VNC server can send a damage rectangle from before a resize. Its
+                    // header keeps the old size, and its tiles cover only the part inside the
+                    // framebuffer. So the tile grid comes from the clipped size.
+                    let (w, h) = self.clip_to_framebuffer(x, y, w, h);
                     // Decode into a Raw-format BGRX buffer and reuse the
                     // Raw write path so output is pixel-identical.
                     let bgrx = self.zrle.decode_rect(self.pixel_format, w, h, &compressed)?;
-                    self.framebuffer.raw_rect(x, y, w, h, &bgrx)?;
+                    if w > 0 && h > 0 {
+                        self.framebuffer.raw_rect(x, y, w, h, &bgrx)?;
+                    }
                     applied += 1;
                 }
                 encoding::TIGHT => {
@@ -489,6 +495,15 @@ impl<T: AsyncRead + AsyncWrite + Unpin> RfbConnection<T> {
         Ok(ServerEvent::FramebufferUpdated {
             rectangles: applied,
         })
+    }
+
+    /// The size of the part of the rectangle at (`x`, `y`) that is inside the wire
+    /// framebuffer. It is zero in an axis where the rectangle starts outside.
+    fn clip_to_framebuffer(&self, x: u32, y: u32, w: u32, h: u32) -> (u32, u32) {
+        (
+            w.min(self.framebuffer.width().saturating_sub(x)),
+            h.min(self.framebuffer.height().saturating_sub(y)),
+        )
     }
 }
 
