@@ -28,6 +28,12 @@ leaf.
   27.2.1 boot on the wire. ServerInit gave 1280x720, and a `DesktopSize`
   change to 1024x768 followed some seconds later. So tart's VNC server
   itself reports the stale size first.
+- On 2026-11-23, `macos-golden-refresh-run-k13` recorded Recovery boots.
+  A capture at the stale size timed out and left its request open. After
+  the resize, the server answered that request with its old region as the
+  header. In 2 of 8 boots the tiles covered the whole new framebuffer, and
+  the decoder failed. k13 changed the decoder, and its log holds the
+  evidence.
 
 ## Done when
 

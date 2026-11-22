@@ -54,8 +54,33 @@ impl ZrleDecoder {
         h: u32,
         compressed: &[u8],
     ) -> Result<Vec<u8>, RfbError> {
+        self.decode_rect_on_first_grid(pf, &[(w, h)], compressed)
+            .map(|(_, _, bgrx)| bgrx)
+    }
+
+    /// Decode one ZRLE rectangle whose size is not certain. Inflate `compressed` once, then
+    /// parse its tiles on each `w`×`h` grid of `grids` in order. Return the first grid that
+    /// parses with no error and no trailing byte, with its pixels. When no grid parses, return
+    /// the error of the first grid.
+    pub fn decode_rect_on_first_grid(
+        &mut self,
+        pf: PixelFormat,
+        grids: &[(u32, u32)],
+        compressed: &[u8],
+    ) -> Result<(u32, u32, Vec<u8>), RfbError> {
         let inflated = self.inflate_rect(compressed)?;
-        tiles_to_bgrx(&inflated, w as usize, h as usize, cpixel_width(&pf)?)
+        let cpx = cpixel_width(&pf)?;
+        let mut first_error = None;
+        for &(w, h) in grids {
+            match tiles_to_bgrx(&inflated, w as usize, h as usize, cpx) {
+                Ok(bgrx) => return Ok((w, h, bgrx)),
+                Err(e) => {
+                    first_error.get_or_insert(e);
+                }
+            }
+        }
+        Err(first_error
+            .unwrap_or_else(|| RfbError::Protocol("ZRLE: no tile grid to decode".into())))
     }
 
     /// Feed one rectangle's compressed blob into the persistent zlib

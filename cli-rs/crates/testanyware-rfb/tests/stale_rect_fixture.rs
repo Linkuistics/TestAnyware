@@ -1,9 +1,14 @@
-//! A rectangle whose header is larger than the framebuffer carries only the part inside it.
+//! A rectangle whose header is larger than the framebuffer decodes the tiles that it carries.
 //!
-//! tart's VNC server on macOS 27.2.1 does this after a resize. The connection starts at
-//! 1280x720, and a `DesktopSize` change sets 1024x768. A redraw then arrives as a ZRLE
-//! rectangle with the header `0,0 1280x720`, but its tiles cover only `0,0 1024x720`. A second
-//! rectangle covers `0,720 1024x48`. A base build saw this at Setup Assistant on 2026-11-22.
+//! tart's VNC server on macOS 27.2.1 can answer a full-frame request from before a resize
+//! after the resize. The connection starts at 1280x720, and a `DesktopSize` change sets
+//! 1024x768. The answer then has the header `0,0 1280x720`, the region of the request. Two
+//! cases are recorded:
+//!
+//! - The tiles cover only `0,0 1024x720`, and a second rectangle covers `0,720 1024x48`. A
+//!   base build saw this at Setup Assistant on 2026-11-22.
+//! - The tiles cover the whole framebuffer, `0,0 1024x768`. Golden creation saw this in
+//!   Recovery on 2026-11-23.
 
 use std::io::Write;
 
@@ -108,4 +113,70 @@ async fn a_stale_zrle_rectangle_after_a_resize_decodes_the_part_inside_the_frame
     assert_eq!(rgb_at(1023, 719), tile_colour(15, 11));
     assert_eq!(rgb_at(0, 720), tile_colour(0, 12));
     assert_eq!(rgb_at(1023, 767), tile_colour(15, 12));
+}
+
+/// A tile stream for a `w`×`h` area: one palette RLE tile for each 64×64 tile, with one run
+/// that covers the whole tile. A grid with another tile height fails to parse it, because a
+/// run then overflows its tile.
+fn run_tiles(w: usize, h: usize) -> Vec<u8> {
+    let mut tiles = Vec::new();
+    for ty in (0..h).step_by(64) {
+        for tx in (0..w).step_by(64) {
+            let pixels = (w - tx).min(64) * (h - ty).min(64);
+            tiles.push(128 + 2); // palette RLE with two colours
+            let [r, g, b] = tile_colour(tx / 64, ty / 64);
+            tiles.extend_from_slice(&[b, g, r, 0, 0, 0]);
+            tiles.push(0x80); // index 0, and a run length follows
+            let mut rest = pixels - 1;
+            while rest >= 255 {
+                tiles.push(255);
+                rest -= 255;
+            }
+            tiles.push(rest as u8);
+        }
+    }
+    tiles
+}
+
+#[tokio::test]
+async fn a_late_answer_to_a_request_from_before_a_resize_decodes_the_whole_framebuffer() {
+    // tart's VNC server on macOS 27.2.1 did this in Recovery on 2026-11-23. A full-frame request
+    // of 1280x720 was open when the framebuffer changed to 1024x768. The server answered it with
+    // the header of the request, `0,0 1280x720`, and with tiles for the whole 1024x768 framebuffer.
+    let mut script = handshake_script(1280, 720);
+
+    script.extend_from_slice(&[0, 0]);
+    script.extend_from_slice(&1u16.to_be_bytes());
+    rect_header(&mut script, 0, 0, 1024, 768, DESKTOP_SIZE);
+
+    let mut stream = ZlibEncoder::new(Vec::new(), Compression::default());
+    script.extend_from_slice(&[0, 0]);
+    script.extend_from_slice(&1u16.to_be_bytes());
+    rect_header(&mut script, 0, 0, 1280, 720, ZRLE);
+    zrle_payload(&mut script, &mut stream, &run_tiles(1024, 768));
+
+    let (client, mut server) = duplex(1 << 20);
+    server.write_all(&script).await.unwrap();
+    let mut conn = RfbConnection::handshake(BufReader::new(client), None)
+        .await
+        .unwrap();
+
+    conn.next_message().await.unwrap();
+    assert_eq!(conn.framebuffer_size(), (1024, 768));
+
+    let event = conn.next_message().await.unwrap();
+    assert!(
+        matches!(event, ServerEvent::FramebufferUpdated { rectangles: 1 }),
+        "{event:?}"
+    );
+
+    let fb = conn.framebuffer();
+    let rgb_at = |x: usize, y: usize| {
+        let i = (y * 1024 + x) * 4;
+        [fb.rgba()[i], fb.rgba()[i + 1], fb.rgba()[i + 2]]
+    };
+    assert_eq!(rgb_at(0, 0), tile_colour(0, 0));
+    assert_eq!(rgb_at(1023, 719), tile_colour(15, 11));
+    assert_eq!(rgb_at(0, 767), tile_colour(0, 11));
+    assert_eq!(rgb_at(1023, 767), tile_colour(15, 11));
 }

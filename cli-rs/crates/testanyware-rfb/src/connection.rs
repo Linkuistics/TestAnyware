@@ -455,13 +455,26 @@ impl<T: AsyncRead + AsyncWrite + Unpin> RfbConnection<T> {
                     let len = u32::from_be_bytes(len_buf) as usize;
                     let mut compressed = vec![0u8; len];
                     self.transport.read_exact(&mut compressed).await?;
-                    // tart's VNC server can send a damage rectangle from before a resize. Its
-                    // header keeps the old size, and its tiles cover only the part inside the
-                    // framebuffer. So the tile grid comes from the clipped size.
-                    let (w, h) = self.clip_to_framebuffer(x, y, w, h);
+                    // tart's VNC server can answer a request from before a resize late. The
+                    // header then has the region of that request, and it can reach outside the
+                    // framebuffer. The tiles cover the part inside the framebuffer (k10), or the
+                    // whole framebuffer from the origin of the rectangle (k13). Only the length
+                    // prefix bounds the data, so the first grid that parses exactly decides.
+                    let clipped = self.clip_to_framebuffer(x, y, w, h);
+                    let mut grids = vec![clipped];
+                    if clipped != (w, h) {
+                        let rest = self.framebuffer_from(x, y);
+                        if rest != clipped {
+                            grids.push(rest);
+                        }
+                    }
                     // Decode into a Raw-format BGRX buffer and reuse the
                     // Raw write path so output is pixel-identical.
-                    let bgrx = self.zrle.decode_rect(self.pixel_format, w, h, &compressed)?;
+                    let (w, h, bgrx) = self.zrle.decode_rect_on_first_grid(
+                        self.pixel_format,
+                        &grids,
+                        &compressed,
+                    )?;
                     if w > 0 && h > 0 {
                         self.framebuffer.raw_rect(x, y, w, h, &bgrx)?;
                     }
@@ -503,6 +516,14 @@ impl<T: AsyncRead + AsyncWrite + Unpin> RfbConnection<T> {
         (
             w.min(self.framebuffer.width().saturating_sub(x)),
             h.min(self.framebuffer.height().saturating_sub(y)),
+        )
+    }
+
+    /// The size of the wire framebuffer from (`x`, `y`) to its right and bottom edges.
+    fn framebuffer_from(&self, x: u32, y: u32) -> (u32, u32) {
+        (
+            self.framebuffer.width().saturating_sub(x),
+            self.framebuffer.height().saturating_sub(y),
         )
     }
 }
