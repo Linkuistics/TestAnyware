@@ -209,6 +209,69 @@ on this Mac, then move and push `main`.
 - 2026-11-23: `testanyware-setup-dbf7834f` runs with no build process, and it
   holds one macOS slot. It may remain from an interrupted refresh. Ask the owner
   before you stop or delete it.
+- 2026-11-23: **the third tags.** This leaf quit the candidate app, then deleted
+  the local tag and the candidate directories of `f4cd0c3b`. `git tag -a v3.0.0`
+  and `git tag -a v2.9.99` now name
+  `097ed8f7337ed9142c1aa8cda926a513c03108a4`. HEAD was that commit and the tree
+  was clean for both builds. `task release:doctor` and `task release:test`
+  passed.
+- 2026-11-23: **the third candidate.** `task release:candidate TAG=v3.0.0` ended
+  at 08:33:00Z, and `task release:candidate-verify TAG=v3.0.0` passed. Apple
+  accepted notarisation submission `73806638-236a-4064-8032-e0c9920b62a9`.
+  `task release:app-verify` passed on the unpacked bundle, and its version is
+  3.0.0. The sha256 of each artifact:
+  - `testanyware-app-v3.0.0-aarch64-apple-darwin.zip`: `90f350a551032b6e23e9894972c4f6ffe78aa4ff7eb881a127530a93938ae79f`
+  - `testanyware-app.rb`: `929efd0ccb79e291767dd557fe2a05b8f6034515194ee44103d436ee7091f7dc`
+  - `testanyware-v3.0.0-aarch64-apple-darwin.tar.xz`: `91f3b1e193faea2883efa45c2d485c0f2136fab4bd75a3e16a9e1e5b663d4d55`
+  - `testanyware-v3.0.0-aarch64-unknown-linux-gnu.tar.xz`: `7de7c93d214fceb4d2220553018801347966e1975c34502cba73ff7d197db8f0`
+  - `testanyware-v3.0.0-x86_64-unknown-linux-gnu.tar.xz`: `a05432943c9885886872800c95a3bf568baf072bd3c59d1543af4b4aade5ae7d`
+  - `testanyware.rb`: `8d0c1764b60a3dd6a02dbe5a447aefb299f78c8a3912b287991937e8235a2546`
+- 2026-11-23: the new throwaway candidate `v2.9.99` built (to 08:38:14Z) and
+  verified. It only serves `release:upgrade-check`.
+- 2026-11-23: **the harness passed at `097ed8f7` with no observer** (08:39:50Z to
+  08:44:47Z, 272.60 s). It ran the archive with sha256 `7de7c93d…`, and the
+  binary reported `testanyware 3.0.0`. All 6 endpoint-free and all 11
+  endpoint-driven checks passed. The cold EasyOCR daemon answered in 13.9 s.
+  The log sha256 is
+  `a1ec8e684023b1e1d3b8be6961e2476b206faa2fddd8d21e7efee070f43f5df3`.
+- 2026-11-23: this run is one pass. It does not measure the rate of the earlier
+  readiness failure. The evidence for the fix is the direct test in
+  `golden-readiness-wait-k16`.
+- 2026-11-23: `release:upgrade-check` installed 2.9.99 and stopped with exit 3
+  at its first person step. The first-start dialog of the app needed the answer
+  Open from the owner.
+- 2026-11-23: **`release:upgrade-check` passed at `097ed8f7`** (10:00:00Z to
+  10:00:44Z, from 2.9.99 to 3.0.0) after the owner answered the dialog. `brew
+  upgrade --cask` took 5 s, and Homebrew reopened the app as build 3.0.0. The
+  signing identity stayed the same, and the executable UUID changed. The guest
+  `upgrade-check` kept its tart process, the new app adopted it, and the first
+  command succeeded.
+- 2026-11-23: `release:upgrade-check-clean` left no guest of the check, no
+  installed app, no tap, no `v2.9.99` directory and no local tag `v2.9.99`.
+- 2026-11-23: **the draft release notes hold at `097ed8f7`.**
+  - The host runs macOS 27.2.1 (26B131), and tart 2.42.0 is the latest formula.
+  - `vm create-golden --dry-run` names macOS 27.2.1 (26B131).
+  - The 2.9.0 binary accepts `_vnc-keeper`, and the 3.0.0 binary refuses it.
+  - The VNC size wait stops after 30 s, and the first EasyOCR call has a 60 s
+    deadline.
+- 2026-11-23: `main@origin` is an ancestor of `097ed8f7`, 21 commits behind it.
+  So the push is a fast-forward. The remote has no tag `v3*` or `v2.9.99`.
+- 2026-11-23: **what the owner saw in this upgrade check.** No Local Network
+  alert appeared after the upgrade. System Settings shows one row
+  `TestAnyware.app`.
+- 2026-11-23: **the owner approved the publication.**
+- 2026-11-23: **v3.0.0 is published** (10:28:58Z). `task release:publish` pushed
+  the tag at `097ed8f7`, created the release with its 4 archives, and moved the
+  tap to `7e79c321`. `gh release edit` set the title and the notes of this file.
+- 2026-11-23: **this Mac runs v3.0.0.** `brew list --versions` shows the formula
+  and the cask at 3.0.0. `doctor` shows the Host CLI and the app
+  `/Applications/TestAnyware.app` at build 3.0.0. A Linux guest started through
+  them in 20 s, and `screen size` read 1920x1080.
+- 2026-11-23: **two items stay for the owner.**
+  - `doctor` reports that the app does not start at login. The owner can turn on
+    "Start at Login" in the TestAnyware menu.
+  - `testanyware-setup-dbf7834f` still runs and holds one macOS slot. This leaf
+    did not stop it.
 
 ## Draft release notes
 
