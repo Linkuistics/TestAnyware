@@ -118,6 +118,87 @@ on this Mac, then move and push `main`.
   tag the new commit and rebuild. Then run the Linux harness and
   `release:upgrade-check`. The section "Draft release notes" holds the text
   for the release.
+- 2026-11-23: **the new tags.** `linux-ocr-first-call-k15` changed product
+  code, so this leaf deleted both local tags and their candidate directories.
+  `git tag -a v3.0.0` and `git tag -a v2.9.99` now name
+  `f4cd0c3b9ad3f134a1c1ccc679bcc55c5a8a5414`. HEAD was that commit and the tree
+  was clean for both builds. `task release:test` passed at that commit.
+- 2026-11-23: **the new candidate.** `task release:candidate TAG=v3.0.0` exited
+  0 (03:10:45Z to 03:16:31Z), and `task release:candidate-verify TAG=v3.0.0`
+  passed. Apple accepted notarisation submission
+  `3b01e1d7-30d4-491f-a770-26ae302999f9`. `task release:app-verify` passed on
+  the unpacked bundle, and its version is 3.0.0. The sha256 of each artifact:
+  - `testanyware-app-v3.0.0-aarch64-apple-darwin.zip`: `001fb30e45824cf257e5809e9f32ea95bd44dc5fc2ee9761a27358a62a1a14d8`
+  - `testanyware-app.rb`: `2f8ffe45b9d30b924b96c6eee52f21117cfff5fa3d9481c2b807215e47f39a3c`
+  - `testanyware-v3.0.0-aarch64-apple-darwin.tar.xz`: `122cd3f4ec7d44bd71ae2b53efad9838405a2bdeee3d07589116302d8b1efdf5`
+  - `testanyware-v3.0.0-aarch64-unknown-linux-gnu.tar.xz`: `be0d9e198c4f85509ca99fa46d0f2d861580cefddb5b3ccb70ab4f17cf3ba10c`
+  - `testanyware-v3.0.0-x86_64-unknown-linux-gnu.tar.xz`: `50cf8a6a8a41001f0d1b21c8d3b67da4c787e7cf39e2e289455ae211a0750196`
+  - `testanyware.rb`: `3ca48478b0a6da3cb8d0deb185fc358537f8831dcaaae49171706e275a95f728`
+- 2026-11-23: the new throwaway candidate `v2.9.99` built (to 03:23:08Z) and
+  verified. It only serves `release:upgrade-check`.
+- 2026-11-23: the new candidate app runs from
+  `target/candidates/v3.0.0.checks/app`. A Linux guest started through it in
+  20 s, and `screen size` read 1920x1080. `doctor` still says that no guest
+  connection has shown the Local Network grant.
+- 2026-11-23: **the first harness run at `f4cd0c3b` failed** (03:25:18Z, exit
+  201, 354.28 s). The Linux guest started, the 6 endpoint-free checks passed,
+  and the OCR provisioning passed. The macOS guest `testanyware-6c1f8a1b` then
+  failed the readiness wait with the error of the earlier second run: "snapshot
+  had no Finder menu bar `File` item". The OCR check did not run. The log
+  sha256 is `6f08f292b3edfd66991a158d4671ce6f32641f3e505d9d9761373479ddc698b9`.
+  After this run, `doctor` reports that a dial to the guest subnet connected.
+- 2026-11-23: **what the wait tests.** `focusedAppMenuBar` of the agent returns
+  the menu bar of the focused app, whichever app that is. So the wait can fail
+  while a focused app has no `File` menu, although the error names Finder. This
+  is a hypothesis. No run kept the snapshot of a failed wait.
+- 2026-11-23: the next run has a read-only observer. It records the focused app
+  and the menu labels at each poll, and it saves the screen if `File` is still
+  absent after 30 s. That run also tests the 60 s OCR deadline.
+- 2026-11-23: **the second harness run at `f4cd0c3b` passed** (from 03:33:08Z,
+  253.12 s). It ran the archive with sha256 `be0d9e19…`, and the binary reported
+  `testanyware 3.0.0`. All 6 endpoint-free and all 11 endpoint-driven checks
+  passed. The cold EasyOCR daemon answered `screen find-text` in 17.5 s, so the
+  earlier 15 s deadline would have failed this run. The log sha256 is
+  `6f2ad84bff43d650e0a371720197607753fec13c6bbf557f555b7e83763b4dfb`.
+- 2026-11-23: **the readiness failure stays unexplained.** The observer polled
+  the guest 9 times. Each poll showed Finder as the focused app with `File`. So
+  this pass does not test the focused-app hypothesis. The failure occurred in
+  one run of v2.9.0 and two runs of v3.0.0, and it is a known limit of this
+  gate.
+- 2026-11-23: **`release:upgrade-check` passed** (03:38:02Z to 03:40:17Z, from
+  2.9.99 to 3.0.0). The owner answered the first-start dialog. `brew upgrade
+  --cask` took 2 s, and Homebrew reopened the app as build 3.0.0. The signing
+  identity stayed the same, and the executable UUID changed. The guest
+  `upgrade-check` kept its tart process, the new app adopted it, and the first
+  command succeeded in 1 s.
+- 2026-11-23: **what the owner saw in the upgrade check.** After the upgrade,
+  no "downloaded from the Internet" dialog and no Local Network alert appeared.
+  System Settings shows one row `TestAnyware.app` and one row
+  `TestAnyware Dev.app`.
+- 2026-11-23: `release:upgrade-check-clean` left no guest, no installed app, no
+  tap, no `v2.9.99` directory and no local tag `v2.9.99`.
+- 2026-11-23: the draft release notes hold at `f4cd0c3b`. `vm create-golden
+  --dry-run` names macOS 27.2.1 (26B131), and Homebrew lists tart 2.42.0.
+- 2026-11-23: **the owner chose to investigate before the release.** So
+  `golden-readiness-wait-k16` runs ahead of this leaf, and this leaf stays live.
+  In the three candidates, each run without an observer failed the wait, and
+  each run with one passed it. So the pass at `f4cd0c3b` may depend on its
+  observer.
+- 2026-11-23: **nothing is published.** The remote has no tag `v3*` or
+  `v2.9.99`, and no release `v3.0.0` exists.
+- 2026-11-23: **the state of this Mac when this session ended.**
+  - The Homebrew formula is still 2.9.0.
+  - The cask is uninstalled, so `/Applications/TestAnyware.app` does not exist.
+  - The v3.0.0 candidate app runs from `target/candidates/v3.0.0.checks/app`.
+  - No guest runs.
+  - The local tag `v3.0.0` names `f4cd0c3b`, and its candidate stays in
+    `target/candidates/v3.0.0`.
+- 2026-11-23: **when this leaf resumes.**
+  - If `golden-readiness-wait-k16` changed only `.grove/`, the candidate stands.
+  - Otherwise, delete the local tag and the candidate directories. Then tag the
+    new commit and build `v3.0.0` and a new throwaway `v2.9.99`. Run the Linux
+    harness and `release:upgrade-check` again.
+  - Get the approval of the owner before `release:publish`.
 
 ## Draft release notes
 
@@ -182,4 +263,6 @@ warning and still succeeds.
 - The VNC client now decodes a ZRLE rectangle that tart sends with a stale size
   after a resize.
 - `screen capture` now crops by the size of the frame that it captured.
+- The first read of the EasyOCR daemon now has a deadline of 60 s, not 15 s. A
+  cold read on a host with no idle CPU took up to 31.5 s.
 <!-- notes:end -->
