@@ -1,7 +1,7 @@
 # text-ocr — EasyOCR daemon (`ocr_analyzer`)
 
 The OCR engine behind the host CLI's `testanyware screen find-text` on
-**Linux and Windows**. macOS uses in-process Apple Vision and never launches
+**Linux and Windows**. macOS uses in-process Apple Vision and never starts
 this (ADR-0002). The Rust bridge
 (`cli-rs/crates/testanyware-ocr-client/src/bridge.rs`) spawns
 `python -m ocr_analyzer --daemon` and talks to it over stdin/stdout.
@@ -17,14 +17,14 @@ One JSON object per line, both directions:
 | daemon → host, per request | `{"detections": [{"text": "File", "bbox": [x0,y0,x1,y1], "confidence": 0.97}], "engine": "easyocr"}` |
 | daemon → host, terminal failure | `{"error": "..."}` (bridge latches "permanently unavailable") |
 
-`bbox` is axis-aligned `[x_min, y_min, x_max, y_max]`; the bridge derives
-width/height by subtraction. The user-facing engine token (`easyocr_daemon`)
-is set Rust-side — this module's `engine` field is ignored.
+`bbox` is axis-aligned `[x_min, y_min, x_max, y_max]`. The bridge derives
+width and height by subtraction. The Rust side sets the user-facing engine token
+(`easyocr_daemon`), and it ignores the `engine` field of this module.
 
-The daemon emits `{"ready": true}` *immediately* and builds the EasyOCR
-`Reader` on a background thread, so the heavy torch import + model load
-overlaps the host's RFB framebuffer capture and the first `readtext` lands
-inside the bridge's 15 s first-call deadline.
+The daemon emits `{"ready": true}` *immediately*. It builds the EasyOCR
+`Reader` on a background thread. So the torch import and the model load
+overlap the RFB framebuffer capture of the host. The first `readtext` then
+lands inside the 15 s first-call deadline of the bridge.
 
 ## Provisioning recipe (Linux aarch64 HUT)
 
@@ -66,7 +66,9 @@ PYTHONPATH=<run> \
 
 The library check keeps the boundary that the stock server image proved. The Linux
 golden is a desktop image. A native library of the venv could load there only because
-the desktop has a library that a server image lacks. A library may resolve outside the
+the desktop has a library that a server image lacks.
+
+A library may resolve outside the
 venv when it is in the C runtime (`libc.so.6`, `libm.so.6`, `libpthread.so.0`,
 `libdl.so.2`, `libgcc_s.so.1`, `ld-linux-aarch64.so.1`) or in `SERVER_IMAGE_SONAMES` of
 the harness. That list holds `libstdc++.so.6`, `librt.so.1`, `libz.so.1` and the four
@@ -82,7 +84,7 @@ Windows harness uses the same recipe and module through the same kind of
 channel, the In-VM agent of its HUT.
 
 `TESTANYWARE_OCR_PYTHON` is the documented interpreter override
-(`docs/reference/env-vars.md`); without it the CLI's `resolve_interpreter()`
+(`docs/reference/env-vars.md`). Without it, `resolve_interpreter()` of the CLI
 looks for an install-layout `<prefix>/libexec/venv/bin/python` or a dev-layout
 `pipeline/.venv/bin/python` (`engine.rs`).
 
@@ -94,5 +96,5 @@ uv sync
 uv run pytest stages/text-ocr            # pure helpers + protocol, no torch needed
 ```
 
-The pure helpers and `serve` loop are torch-free and unit-tested with a fake
-reader (`tests/test_daemon.py`); only `build_easyocr_reader` imports easyocr.
+The pure helpers and the `serve` loop need no torch. Unit tests run them with a
+fake reader (`tests/test_daemon.py`). Only `build_easyocr_reader` imports easyocr.
