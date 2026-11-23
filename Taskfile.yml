@@ -1639,7 +1639,7 @@ tasks:
       - python3 scripts/tart-vnc-idle-repro.py --gap {{.GAP | default "70"}} {{if .BASE}}--base {{.BASE}}{{end}} {{if .HOLD}}--hold{{end}}
 
   vm:vnc-idle-live:
-    desc: 'Does a tart guest survive idle time with no VNC client on this host (ADR-0018)? Through the app of the bundle (task vm:vnc-idle-live [APP=<bundle>]), a macOS guest that `vm start` starts takes two `screen size` commands 5 s apart and then 5 minutes with no VNC client, and a Linux guest 70 s. A `screen size` then works on each guest, and no `_vnc-keeper` process exists. APP defaults to the development bundle. Starts the bundle when no app answers, quits only that one, and refuses another app on the socket. Optional MACOS_BASE, LINUX_BASE, IDLE, GAP. About 10 minutes; always stops its guests'
+    desc: 'Does a tart guest survive idle time with no VNC client on this host (ADR-0018)? Through the app of the bundle (task vm:vnc-idle-live [APP=<bundle>]), a macOS guest that `vm start` starts takes two `screen size` commands 5 s apart and then 5 minutes with no VNC client, and a Linux guest 70 s. A `screen size` then works on each guest, and no `_vnc-keeper` process exists. The first `screen size` of each guest must be EXPECT_SIZE (default 1920x1080), because the VNC size wait at the end of `vm start` hides the stale first size of tart. It prints the start output of each guest and says whether it names the wait. APP defaults to the development bundle. Starts the bundle when no app answers, quits only that one, and refuses another app on the socket. Optional MACOS_BASE, LINUX_BASE, IDLE, GAP, EXPECT_SIZE. About 10 minutes; always stops its guests'
     deps: [cli:build]
     cmds:
       - |

@@ -7,12 +7,16 @@
 #   macOS guest A
 #     1. Two `screen size` commands 5 s apart. The app resets the guest connection when its
 #        client leaves, and on macOS 27.0.1 the next connection after a reset crashed tart.
-#        The script prints the first size, because the first connection after a boot once saw
-#        a 1280x720 frame.
+#        The first size must be the size that `vm start` set (EXPECT_SIZE). The first session
+#        after a tart boot can get a stale 1280x720, and the VNC size wait at the end of
+#        `vm start` must hide it (ADR-0018).
 #     2. 5 minutes with no VNC client, then `screen size`. The command works, and tart runs.
 #   Linux guest B
 #     3. `screen size`, 70 s with no VNC client, then `screen size`. The command works, and
-#        tart runs.
+#        tart runs. The first size must be EXPECT_SIZE, as in check 1.
+#
+# The script prints the progress output of each `vm start`, and says whether it names the VNC
+# size wait. A start whose first session read the right size names no wait.
 #
 # While each guest runs, no `_vnc-keeper` process exists. The script first shows that its
 # instrument finds a decoy process with that command line. After each `vm stop`, tart lists
@@ -26,8 +30,8 @@
 #
 # Env: TESTANYWARE_BIN (default cli-rs/target/debug/testanyware); MACOS_BASE and LINUX_BASE
 # (the goldens to clone; default the golden of the platform); IDLE (check 2 seconds, default
-# 300); GAP (check 3 seconds, default 70); MAX_START_SECS (default 600). It stops its guests on
-# every exit. About 10 minutes.
+# 300); GAP (check 3 seconds, default 70); MAX_START_SECS (default 600); EXPECT_SIZE (the size
+# of each guest display, default 1920x1080). It stops its guests on every exit. About 10 minutes.
 
 set -euo pipefail
 IFS=$'\n\t'
@@ -39,6 +43,7 @@ socket="$HOME/Library/Application Support/TestAnyware/testanyware.sock"
 idle=${IDLE:-300}
 gap=${GAP:-70}
 max_start=${MAX_START_SECS:-600}
+expect=${EXPECT_SIZE:-1920x1080}
 
 say() { echo "vnc-idle-live: $*" >&2; }
 
@@ -117,13 +122,28 @@ decoy_control() {
   say "control: the instrument finds a decoy keeper"
 }
 
+# Start a guest, then print its progress output and whether that output names the VNC size wait.
 start_guest() {
-  local platform=$1 id=$2 base=${3:-} out
+  local platform=$1 id=$2 base=${3:-} out progress line
   local args=(vm start --platform "$platform" --id "$id" --wait="$max_start" --json)
   [[ -n $base ]] && args+=(--base "$base")
   say "starting the $platform guest $id${base:+ from $base}..."
   ids+=("$id")
-  out=$("$bin" "${args[@]}") || fail "vm start --platform $platform exited non-zero: $out"
+  progress=$(mktemp)
+  if ! out=$("$bin" "${args[@]}" 2>"$progress"); then
+    cat "$progress" >&2
+    rm -f "$progress"
+    fail "vm start --platform $platform exited non-zero: $out"
+  fi
+  while IFS= read -r line; do
+    say "  start output: $line"
+  done <"$progress"
+  if grep -q 'VNC size wait' "$progress"; then
+    say "the start output of $id names the VNC size wait"
+  else
+    say "the start output of $id names no VNC size wait"
+  fi
+  rm -f "$progress"
   [[ $(jq -r '.id // empty' <<<"$out") == "$id" ]] || fail "vm start printed another id: $out"
   [[ $(tart_state "$id") == running ]] || fail "$id is not running after vm start"
 }
@@ -168,6 +188,7 @@ no_keeper "after the start of $a"
 say "check 1: screen size, 5 s, screen size"
 first=$(screen_size "$a" "check 1")
 say "the first screen size after the boot: $first"
+[[ $first == "$expect" ]] || fail "check 1: the first screen size after vm start is $first, not $expect"
 sleep 5
 second=$(screen_size "$a" "check 1, second command")
 say "the second screen size, 5 s later: $second"
@@ -190,7 +211,9 @@ start_guest linux "$b" "${LINUX_BASE:-}"
 no_keeper "after the start of $b"
 
 say "check 3: screen size, ${gap} s with no VNC client, screen size"
-screen_size "$b" "check 3, first command" >/dev/null
+first=$(screen_size "$b" "check 3, first command")
+say "the first screen size after the boot: $first"
+[[ $first == "$expect" ]] || fail "check 3: the first screen size after vm start is $first, not $expect"
 sleep "$gap"
 screen_size "$b" "check 3" >/dev/null
 [[ $(tart_state "$b") == running ]] || fail "check 3: $b stopped (state: $(tart_state "$b"))"

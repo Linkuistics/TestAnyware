@@ -668,6 +668,10 @@ sequenceDiagram
   A-->>C: progress event
   A->>G: health wait, with the Local Network diagnosis
   A-->>C: progress event
+  opt a tart guest
+    A->>T: the VNC size wait: short RFB sessions until ServerInit reports the screen size
+    A-->>C: progress event, when the wait had to wait
+  end
   alt healthy
     A-->>C: result event: the vm start output of today
   else the client goes away first
@@ -684,6 +688,19 @@ QEMU and swtpm detached in their own sessions, as `vm start` does today. While
 the app runs, it reaps each of its children that exits. Each child outlives the
 app, as the measurements show. For a tart guest, `vm start` starts no process
 beside `tart run` (ADR-0018).
+
+The last step of `vm start` for a tart guest is the VNC size wait (ADR-0018).
+The first RFB session after a tart boot can get a stale size in ServerInit. So
+the app opens short sessions to the guest's VNC server, 250 ms apart, until
+ServerInit reports the screen size that the start set. Each session closes after
+ServerInit, and the wait stops after 30 s. A QEMU guest gets no wait.
+
+The target of the wait is the size of the macOS display switch when the switch
+applied, in pixels. On a Linux guest it is the tart display. When the macOS
+switch did not apply, the size is not known, and a progress line says that the
+wait did not run. The start output names the wait only when the first session
+read another size. At 30 s a warning names the last size, and the start still
+succeeds. A start whose client leaves ends the wait at once.
 
 A detached child holds no descriptor of the app. On macOS a new socket gets
 close-on-exec in a second call. So a `fork` on another thread could hand a

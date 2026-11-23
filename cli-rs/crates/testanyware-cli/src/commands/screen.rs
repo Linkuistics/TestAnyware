@@ -79,13 +79,6 @@ pub async fn run_screen_capture(
         Err(err) => exit_vnc_connect_error(err, mode),
     };
 
-    // Default crop is the full frame in the chosen coordinate space: logical
-    // (1920×1080) normally, physical (3840×2160) under --physical (ADR-0016 D2b).
-    let (fb_w, fb_h) = if physical {
-        conn.physical_framebuffer_size()
-    } else {
-        conn.framebuffer_size()
-    };
     // Shared capture pipeline (request full-frame → drain until a non-empty
     // update applies). `screen capture` then crops post-decode.
     let capture = if physical {
@@ -97,7 +90,11 @@ pub async fn run_screen_capture(
         Ok(fb) => fb,
         Err(err) => exit_rfb_error(err, mode),
     };
-    let crop = region.unwrap_or((0, 0, fb_w, fb_h));
+    // Default crop is the full frame in the chosen coordinate space: logical
+    // (1920×1080) normally, physical (3840×2160) under --physical (ADR-0016 D2b).
+    // It is the size of the captured frame, not of ServerInit: a `DesktopSize`
+    // change can arrive with the frame (ADR-0018).
+    let crop = region.unwrap_or((0, 0, fb.width(), fb.height()));
     let png_bytes = match encode_png(&fb, crop) {
         Ok(b) => b,
         Err(err) => {

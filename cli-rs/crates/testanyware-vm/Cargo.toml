@@ -42,4 +42,6 @@ libc = "0.2"
 
 [dev-dependencies]
 tempfile = { workspace = true }
+# `test-util` pauses the clock, so the 30 s bound of the VNC size wait runs in no time in a test.
+tokio = { workspace = true, features = ["test-util"] }
 wiremock = { workspace = true }

@@ -21,7 +21,7 @@ use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use common::{serial, FakeAgent, OutputExt, TestApp, CLI};
+use common::{serial, FakeAgent, FakeRfb, OutputExt, TestApp, CLI};
 use serde_json::{json, Value};
 use wiremock::ResponseTemplate;
 
@@ -37,17 +37,11 @@ struct Fixture {
     agent_port: u16,
 }
 
-/// Hold every connection that arrives, as a VNC server that never speaks does.
-fn silent_vnc_server() -> u16 {
-    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-    let port = listener.local_addr().unwrap().port();
-    std::thread::spawn(move || {
-        let mut held = Vec::new();
-        for conn in listener.incoming().flatten() {
-            held.push(conn);
-        }
-    });
-    port
+/// A VNC server whose ServerInit reports 1920x1080, the size of the tart display that a start
+/// sets. So the VNC size wait at the end of a Linux start reads the target at its first session
+/// and prints nothing (ADR-0018).
+fn vnc_server() -> u16 {
+    FakeRfb::start(1920, 1080, None).addr.port()
 }
 
 /// A port with nothing behind it.
@@ -107,7 +101,7 @@ impl Fixture {
         prepare: impl FnOnce(&TestApp),
         extra: &[String],
     ) -> Self {
-        let vnc_port = silent_vnc_server();
+        let vnc_port = vnc_server();
         let prepare = |app: &TestApp| {
             let tart = app.tool_dir().join("tart");
             std::fs::write(&tart, FAKE_TART).unwrap();

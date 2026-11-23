@@ -40,6 +40,9 @@ pub mod start_context;
 pub mod slot_gate;
 pub mod tools;
 pub mod tpm;
+/// The VNC size wait at the end of a tart start (ADR-0018). Not macOS-gated, so its tests run
+/// on each host.
+pub mod vnc_size_wait;
 /// `russh`-backed SSH/SFTP provisioning helper for `vm create-golden`
 /// (ADR-0007). Pure Rust + async, **not** macOS-gated: the Tier-2
 /// linux/win goldens reuse it. Consumed by the `110` boot leaves.

@@ -442,7 +442,10 @@ impl VmLifecycle {
         // the switch itself stays best-effort: failures warn and leave the VM
         // started. Linux-on-tart honors the host-configured mode directly, so
         // the guest-side switch is macOS-only.
-        if opts.platform == Platform::Macos {
+        //
+        // `size_target` is the pixel size that this start set, which the VNC size wait expects
+        // in ServerInit. `None` means that the size is not known.
+        let size_target: Option<(u32, u32)> = if opts.platform == Platform::Macos {
             let progress = &ctx.progress;
             match opts.logical {
                 // HiDPI @2x (ADR-0016 D3): select the guest's 2× Retina
@@ -461,13 +464,18 @@ impl VmLifecycle {
                     // this runs only when no 2× mode exists, so it cannot
                     // defeat HiDPI on a real Retina host (where the 2×
                     // switch succeeds first and skips this).
-                    if !applied {
+                    if applied {
+                        // The 2× mode has twice as many pixels as points.
+                        Some((lw * 2, lh * 2))
+                    } else {
                         progress.line(&format!(
                             "  HiDPI 2× switch did not apply — falling back to \
                              1× {lw}x{lh} (HiDPI needs a Retina host / the \
                              deferred deterministic mechanism, ADR-0016)"
                         ));
-                        crate::display::apply(&ctx.tools, progress, &ip, ctx.agent_port, (lw, lh), 1, paths, &opts.id).await;
+                        crate::display::apply(&ctx.tools, progress, &ip, ctx.agent_port, (lw, lh), 1, paths, &opts.id)
+                            .await
+                            .then_some((lw, lh))
                     }
                 }
                 // Default 1× path (ADR-0014): force the 1920×1080-px
@@ -475,16 +483,45 @@ impl VmLifecycle {
                 None => {
                     let resolved = crate::tart::resolve_display(opts.display.as_deref());
                     match crate::display::parse_target(resolved) {
-                        Some(target) => {
-                            crate::display::apply(&ctx.tools, progress, &ip, ctx.agent_port, target, 1, paths, &opts.id).await;
+                        Some(target) => crate::display::apply(&ctx.tools, progress, &ip, ctx.agent_port, target, 1, paths, &opts.id)
+                            .await
+                            .then_some(target),
+                        None => {
+                            progress.line(&format!(
+                                "  warning: cannot derive a px target from display \
+                                 '{resolved}' — skipping macOS resolution switch"
+                            ));
+                            None
                         }
-                        None => progress.line(&format!(
-                            "  warning: cannot derive a px target from display \
-                             '{resolved}' — skipping macOS resolution switch"
-                        )),
                     }
                 }
             }
+        } else {
+            // Linux on tart shows the tart display as it is.
+            crate::display::parse_target(crate::tart::resolve_display(opts.display.as_deref()))
+        };
+
+        // The VNC size wait (ADR-0018). The first RFB session after a tart boot can get a stale
+        // size, so short sessions run until ServerInit reports the size set above. The last one
+        // closes before the start returns, so no session holds the guest between commands.
+        match size_target {
+            Some(target) => {
+                let outcome = crate::vnc_size_wait::wait_for_size(target, &ctx.cancel, || {
+                    crate::vnc_size_wait::read_server_init(&vnc.host, vnc.port, vnc.password.as_deref())
+                })
+                .await;
+                if outcome == crate::vnc_size_wait::SizeWait::Cancelled {
+                    // The caller sees the cancel and removes the VM, so nothing is written here.
+                    return Err(VmError::StartCancelled { id: opts.id.clone() });
+                }
+                if let Some(line) = outcome.line(target) {
+                    ctx.progress.line(&line);
+                }
+            }
+            None => ctx.progress.line(
+                "  VNC size wait skipped: the screen size of the guest is not known, so the \
+                 first command can read a stale size",
+            ),
         }
 
         let spec = VmSpec {

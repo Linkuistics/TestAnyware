@@ -3,8 +3,8 @@
 //! The real Host CLI binary runs against the real app executable in test mode. `tart` is a
 //! fake script (`testanyware-vm/tests/fixtures/fake-tart`): a clone is a file, and a running
 //! VM is a `sleep` process. The agent is a wiremock server on loopback, and the app probes it
-//! because `--test-agent-port` moves the agent port of a start. A plain listener stands for the
-//! VNC port.
+//! because `--test-agent-port` moves the agent port of a start. A synthetic RFB server stands for
+//! the VNC server of the guest.
 //!
 //! The tart backend exists on a macOS host only, and so does the direct path's absence: a macOS
 //! host has no direct `vm start` to compare with. The expected output is written out below.
@@ -18,7 +18,7 @@ use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
-use common::{serial, FakeAgent, OutputExt, TestApp, CLI};
+use common::{serial, FakeAgent, FakeRfb, OutputExt, TestApp, CLI};
 use serde_json::{json, Value};
 use wiremock::ResponseTemplate;
 
@@ -32,17 +32,11 @@ struct Fixture {
     vnc_port: u16,
 }
 
-/// Hold every connection that arrives, as a VNC server that never speaks does.
-fn silent_vnc_server() -> u16 {
-    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-    let port = listener.local_addr().unwrap().port();
-    std::thread::spawn(move || {
-        let mut held = Vec::new();
-        for conn in listener.incoming().flatten() {
-            held.push(conn);
-        }
-    });
-    port
+/// A VNC server whose ServerInit reports 1920x1080, the size of the tart display that a start
+/// sets. So the VNC size wait at the end of a Linux start reads the target at its first session
+/// and prints nothing (ADR-0018).
+fn vnc_server() -> u16 {
+    FakeRfb::start(1920, 1080, None).addr.port()
 }
 
 /// A port with nothing behind it.
@@ -71,7 +65,7 @@ impl Fixture {
     }
 
     fn with_agent_port(agent: FakeAgent, agent_port: u16) -> Self {
-        let vnc_port = silent_vnc_server();
+        let vnc_port = vnc_server();
         let app = TestApp::start_after_with_args(
             |app| {
                 let tart = app.tool_dir().join("tart");

@@ -228,6 +228,36 @@ fn screen_capture_through_the_app_writes_the_direct_png() {
 }
 
 #[test]
+fn screen_capture_crops_by_the_size_of_the_frame_that_it_captured() {
+    // The first session after a tart boot can get a stale size in ServerInit. The frame then
+    // comes with a `DesktopSize` change to the real size (ADR-0018). The PNG must have the size
+    // of the frame, not the size of ServerInit.
+    let _lock = serial();
+    let fixture = Fixture::with(FakeRfb::start_resized((32, 24), WIDTH, HEIGHT), None);
+    let png = fixture.app.root().join("resized.png");
+    let png = png.to_str().unwrap();
+    for physical in [false, true] {
+        let mut args = vec!["screen", "capture", "--vm", VM, "-o", png];
+        if physical {
+            args.push("--physical");
+        }
+        let routed = fixture.app.cli(&args);
+        assert_eq!(routed.code(), 0, "{args:?}: {}", routed.err());
+        assert_eq!(routed.out(), format!("wrote {png} ({WIDTH}x{HEIGHT})\n"), "{args:?}");
+        let image = image::load_from_memory(&std::fs::read(png).unwrap()).unwrap().to_rgba8();
+        assert_eq!(image.dimensions(), (u32::from(WIDTH), u32::from(HEIGHT)), "{args:?}");
+        // The bottom-right pixel is outside the stale size, so the frame filled it.
+        let (x, y) = (WIDTH - 1, HEIGHT - 1);
+        let wire = [(x * 4) as u8, (y * 5) as u8, ((x + y) * 3) as u8];
+        assert_eq!(
+            image.get_pixel(u32::from(x), u32::from(y)).0,
+            [wire[2], wire[1], wire[0], 255],
+            "{args:?}"
+        );
+    }
+}
+
+#[test]
 fn a_key_press_through_the_app_reaches_the_guest() {
     let _lock = serial();
     let fixture = Fixture::new(None, None);

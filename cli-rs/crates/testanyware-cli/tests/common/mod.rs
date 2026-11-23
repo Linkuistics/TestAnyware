@@ -731,7 +731,15 @@ struct Held {
 
 impl FakeRfb {
     pub fn start(width: u16, height: u16, password: Option<&str>) -> Self {
-        Self::spawn(width, height, password, false, None)
+        Self::spawn(width, height, password, false, None, None)
+    }
+
+    /// A server whose ServerInit reports `init`, as tart's first session after a boot can. It
+    /// answers each update request with a `DesktopSize` change to `width` x `height` and then
+    /// the frame of that size, in one update. The research note
+    /// `tart-vnc-stale-first-size-macos-27` measured that tart does so.
+    pub fn start_resized(init: (u16, u16), width: u16, height: u16) -> Self {
+        Self::spawn(width, height, None, false, None, Some(init))
     }
 
     /// A server that reads input as late as tart does. It reads one message in each `lag`, and
@@ -740,14 +748,14 @@ impl FakeRfb {
     /// so. The plain server reads each byte at once, so it hides a client that closes before
     /// the server has read its input.
     pub fn start_reading_late(width: u16, height: u16, lag: Duration) -> Self {
-        Self::spawn(width, height, None, false, Some(lag))
+        Self::spawn(width, height, None, false, Some(lag), None)
     }
 
     /// A server like tart's VNC server. When a client ends its half of the connection, it reads
     /// the end (or the reset that follows it), keeps the connection open and sends nothing more. It closes only when the test
     /// ends. The plain server closes at once, so it hides a relay that waits for the guest.
     pub fn start_holding(width: u16, height: u16) -> Self {
-        Self::spawn(width, height, None, true, None)
+        Self::spawn(width, height, None, true, None, None)
     }
 
     fn spawn(
@@ -756,6 +764,7 @@ impl FakeRfb {
         password: Option<&str>,
         hold: bool,
         lag: Option<Duration>,
+        init: Option<(u16, u16)>,
     ) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind the fake RFB server");
         let addr = listener.local_addr().unwrap();
@@ -772,7 +781,8 @@ impl FakeRfb {
                 let (log, secret, keep) = (Arc::clone(&log), secret.clone(), Arc::clone(&keep));
                 std::thread::spawn(move || {
                     let held = hold.then_some(&*keep);
-                    let _ = serve_rfb(conn, width, height, secret.as_deref(), &log, held, lag);
+                    let size = Size { init: init.unwrap_or((width, height)), width, height };
+                    let _ = serve_rfb(conn, size, secret.as_deref(), &log, held, lag);
                 });
             }
         });
@@ -844,10 +854,16 @@ fn frame_pixel(x: u16, y: u16) -> [u8; 4] {
     [(x * 4) as u8, (y * 5) as u8, ((x + y) * 3) as u8, 0]
 }
 
-fn serve_rfb(
-    mut conn: TcpStream,
+/// The size in ServerInit, and the size of the frame. They differ only for a resizing server.
+struct Size {
+    init: (u16, u16),
     width: u16,
     height: u16,
+}
+
+fn serve_rfb(
+    mut conn: TcpStream,
+    size: Size,
     password: Option<&str>,
     log: &Mutex<Vec<RfbEvent>>,
     hold: Option<&Held>,
@@ -880,25 +896,39 @@ fn serve_rfb(
     conn.write_all(&0u32.to_be_bytes())?; // SecurityResult: OK
     conn.read_exact(&mut byte)?; // ClientInit
 
+    let Size { init: (init_w, init_h), width, height } = size;
     let mut init = Vec::new();
-    init.extend_from_slice(&width.to_be_bytes());
-    init.extend_from_slice(&height.to_be_bytes());
+    init.extend_from_slice(&init_w.to_be_bytes());
+    init.extend_from_slice(&init_h.to_be_bytes());
     init.extend_from_slice(&testanyware_rfb::PixelFormat::rgba32_le().encode());
     init.extend_from_slice(&4u32.to_be_bytes());
     init.extend_from_slice(b"fake");
     conn.write_all(&init)?;
 
-    // The frame is one Raw rectangle, in the layout the client set.
-    let mut update = vec![0u8, 0, 0, 1];
-    for value in [0u16, 0, width, height] {
-        update.extend_from_slice(&value.to_be_bytes());
-    }
-    update.extend_from_slice(&0i32.to_be_bytes()); // Raw
-    for y in 0..height {
-        for x in 0..width {
-            update.extend_from_slice(&frame_pixel(x, y));
+    // The frame is one Raw rectangle, in the layout the client set. A resizing server puts a
+    // `DesktopSize` rectangle before it. The server builds the update at the first request,
+    // because many clients ask for no frame.
+    let resized = (init_w, init_h) != (width, height);
+    let build_update = || {
+        let mut update = vec![0u8, 0, 0, if resized { 2 } else { 1 }];
+        if resized {
+            for value in [0u16, 0, width, height] {
+                update.extend_from_slice(&value.to_be_bytes());
+            }
+            update.extend_from_slice(&(-223i32).to_be_bytes()); // DesktopSize
         }
-    }
+        for value in [0u16, 0, width, height] {
+            update.extend_from_slice(&value.to_be_bytes());
+        }
+        update.extend_from_slice(&0i32.to_be_bytes()); // Raw
+        for y in 0..height {
+            for x in 0..width {
+                update.extend_from_slice(&frame_pixel(x, y));
+            }
+        }
+        update
+    };
+    let mut update: Option<Vec<u8>> = None;
 
     let skip = |conn: &mut TcpStream, n: usize| -> std::io::Result<()> {
         let mut sink = vec![0u8; n];
@@ -945,7 +975,7 @@ fn serve_rfb(
                     w: u16::from_be_bytes([body[5], body[6]]),
                     h: u16::from_be_bytes([body[7], body[8]]),
                 });
-                conn.write_all(&update)?;
+                conn.write_all(update.get_or_insert_with(build_update))?;
             }
             4 => {
                 let mut body = [0u8; 7];
