@@ -818,8 +818,9 @@ private func focusedApplicationPid() -> pid_t? {
 
 // MARK: - Menu Bar
 
-/// Returns the focused app's menu bar as a pseudo-window with its
-/// AXMenuBarItem children as elements.
+/// Returns the visible menu bar as a pseudo-window with its AXMenuBarItem
+/// children as elements. It reads the focused app first. If that app has no
+/// menu bar, it reads the frontmost regular app (see `MenuBarOwner`).
 ///
 /// `depth` mirrors the request's snapshot depth. With a closed menu the
 /// AXMenuBarItem has no children, so deeper walks are cheap. When a menu is
@@ -831,38 +832,45 @@ private func focusedAppMenuBar(
     mode: String,
     depth: Int
 ) -> WindowInfo? {
-    guard let frontPid = focusedApplicationPid() else { return nil }
-    let appWrapper = AXElementWrapper.application(pid: frontPid)
-    let appName = onScreenApplications()
-        .first(where: { $0.pid == frontPid })?.name ?? "Unknown"
+    let apps = onScreenApplications()
+    let candidates = MenuBarOwner.candidatePids(
+        focused: focusedApplicationPid(),
+        windowOrder: apps.map(\.pid),
+        isRegular: { NSRunningApplication(processIdentifier: $0)?.activationPolicy == .regular }
+    )
 
-    for child in appWrapper.children() {
-        guard child.role() == "AXMenuBar" else { continue }
+    for pid in candidates {
+        let appWrapper = AXElementWrapper.application(pid: pid)
+        let appName = apps.first(where: { $0.pid == pid })?.name ?? "Unknown"
 
-        let rawElements = TreeWalker.walk(
-            root: child, depth: depth,
-            roleFilter: roleFilter, labelFilter: labelFilter
-        )
+        for child in appWrapper.children() {
+            guard child.role() == "AXMenuBar" else { continue }
 
-        let filteredElements: [ElementInfo]
-        switch mode {
-        case "interact": filteredElements = filterInteractive(rawElements)
-        case "layout": filteredElements = filterLayout(rawElements)
-        default: filteredElements = rawElements
+            let rawElements = TreeWalker.walk(
+                root: child, depth: depth,
+                roleFilter: roleFilter, labelFilter: labelFilter
+            )
+
+            let filteredElements: [ElementInfo]
+            switch mode {
+            case "interact": filteredElements = filterInteractive(rawElements)
+            case "layout": filteredElements = filterLayout(rawElements)
+            default: filteredElements = rawElements
+            }
+
+            let pos = child.position() ?? .zero
+            let sz = child.size() ?? .zero
+
+            return WindowInfo(
+                title: "Menu Bar",
+                windowType: "menuBar",
+                size: CGSize(width: sz.width, height: sz.height),
+                position: CGPoint(x: pos.x, y: pos.y),
+                appName: appName,
+                focused: false,
+                elements: filteredElements
+            )
         }
-
-        let pos = child.position() ?? .zero
-        let sz = child.size() ?? .zero
-
-        return WindowInfo(
-            title: "Menu Bar",
-            windowType: "menuBar",
-            size: CGSize(width: sz.width, height: sz.height),
-            position: CGPoint(x: pos.x, y: pos.y),
-            appName: appName,
-            focused: false,
-            elements: filteredElements
-        )
     }
     return nil
 }

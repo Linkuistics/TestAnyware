@@ -199,6 +199,16 @@ on this Mac, then move and push `main`.
     new commit and build `v3.0.0` and a new throwaway `v2.9.99`. Run the Linux
     harness and `release:upgrade-check` again.
   - Get the approval of the owner before `release:publish`.
+- 2026-11-23: **`golden-readiness-wait-k16` changed product code.** It fixed
+  the menu bar lookup of the macOS agent, so the second branch above applies.
+  The golden `testanyware-golden-macos-27` on this Mac already holds that fix.
+  A golden build from an agent session can fail with errno 65. If it
+  does, ask the owner to run it in a Terminal.app window, outside `herdr`.
+- 2026-11-23: the rebuilt candidate needs a passing Linux harness run with no
+  observer. The earlier passes do not count for it.
+- 2026-11-23: `testanyware-setup-dbf7834f` runs with no build process, and it
+  holds one macOS slot. It may remain from an interrupted refresh. Ask the owner
+  before you stop or delete it.
 
 ## Draft release notes
 
@@ -265,4 +275,8 @@ warning and still succeeds.
 - `screen capture` now crops by the size of the frame that it captured.
 - The first read of the EasyOCR daemon now has a deadline of 60 s, not 15 s. A
   cold read on a host with no idle CPU took up to 31.5 s.
+- `agent snapshot` on a macOS guest now returns the menu bar when a background
+  helper holds the focus. Before this fix, `AccessibilityUIServer` could hide
+  the menu bar from the snapshot after a boot. A guest gets this fix from a
+  golden that this release builds.
 <!-- notes:end -->
