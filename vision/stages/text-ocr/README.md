@@ -22,9 +22,11 @@ width and height by subtraction. The Rust side sets the user-facing engine token
 (`easyocr_daemon`), and it ignores the `engine` field of this module.
 
 The daemon emits `{"ready": true}` *immediately*. It builds the EasyOCR
-`Reader` on a background thread. So the torch import and the model load
-overlap the RFB framebuffer capture of the host. The first `readtext` then
-lands inside the 15 s first-call deadline of the bridge.
+`Reader` on a background thread. The host CLI captures the frame before it
+starts the daemon, so the capture does not overlap this work. The 60 s
+first-call deadline of the bridge holds the torch import, the model load and
+the first `readtext`. A cold call took about 9 s on a host with spare CPU. It
+took up to 31.5 s on a host under heavy load.
 
 ## Provisioning recipe (Linux aarch64 HUT)
 

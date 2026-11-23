@@ -59,9 +59,9 @@ def _emit(stream: TextIO, obj: dict[str, Any]) -> None:
 
 
 class _ReaderHolder:
-    """Builds the reader on a background thread so the heavy torch/easyocr
-    import + model load overlaps the host's RFB framebuffer capture, keeping
-    the first ``readtext`` inside the bridge's first-call deadline."""
+    """Builds the reader on a background thread, so the daemon can send its
+    ready line at once. The first-call deadline of the bridge holds this build
+    and the first ``readtext``."""
 
     def __init__(self, factory: Callable[[], Reader]) -> None:
         self._factory = factory

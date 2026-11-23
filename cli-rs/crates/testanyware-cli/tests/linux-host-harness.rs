@@ -1494,7 +1494,7 @@ async fn check_venv_libraries(
 /// a venv with `easyocr` (pulls torch — minutes on first run, aarch64-linux CPU
 /// wheels exist on PyPI), upload the `ocr_analyzer` package, and **pre-download
 /// the EasyOCR models** so the daemon's first `readtext` lands inside the
-/// bridge's 15s first-call deadline rather than racing a model download. Right after the
+/// bridge's 60 s first-call deadline rather than racing a model download. Right after the
 /// install, it checks the native libraries of the venv ([`check_venv_libraries`]).
 ///
 /// Built into a throwaway clone at run time, never baked into an image
@@ -1612,7 +1612,7 @@ fn find_text_hit(body: &Value) -> Result<String, String> {
 /// frame); the menu-bar `File` is the same deterministic fixture `live-vm-gate`
 /// and the `020` capture use. A generous `--timeout` lets it re-OCR if the first
 /// frame hasn't rendered, but the daemon's *first* recognize is the real risk —
-/// it must finish within the bridge's 15s first-call deadline (hence the
+/// it must finish within the bridge's 60 s first-call deadline (hence the
 /// pre-warmed models + background-thread Reader load in `ocr_analyzer`).
 async fn check_find_text(
     ch: &impl ProvisionChannel,
@@ -1629,7 +1629,7 @@ async fn check_find_text(
     let args = ["screen", "find-text", "File", "--vnc", vnc_ep, "--timeout", "20", "--json"];
     let cmd = build_invocation(run_dir, &envs, &args);
     // The first call starts the daemon cold, so the elapsed time is the cold start plus one
-    // capture and one read. The bridge's first-call deadline is 15 s.
+    // capture and one read. The bridge's first-call deadline is 60 s.
     let started = Instant::now();
     let out = ch.exec(&cmd).await?;
     let elapsed = started.elapsed();
@@ -1919,7 +1919,7 @@ async fn stage_dist_binary(ch: &impl ProvisionChannel) -> Result<(), String> {
 /// easyocr (resolving torch et al.), then `pip install --no-deps` the uploaded
 /// `ocr_analyzer` project so `python -m ocr_analyzer` resolves from the venv's
 /// own site-packages with no `PYTHONPATH`. Pre-warms the EasyOCR models so the
-/// daemon's first recognize lands inside the bridge's 15s first-call deadline.
+/// daemon's first recognize lands inside the bridge's 60 s first-call deadline.
 ///
 /// The easyocr install is [`ocr_pip_install_command`], the one of `provision_ocr`: it pins the
 /// torch pair that reads the frame on the Linux golden, and it keeps pip's cache off the disk of

@@ -83,15 +83,18 @@ pub struct OcrChildBridgeConfig {
     /// Deadline for the `{"ready": true}` handshake. Swift defaults to
     /// 8s; the EasyOCR import is the slow part on cold start.
     pub warm_deadline: Duration,
-    /// Deadline for the first `recognize` after handshake — the
-    /// runtime may need to allocate model buffers on first inference.
-    /// Swift defaults to 15s.
+    /// Deadline for the first `recognize` after the handshake. The EasyOCR
+    /// daemon sends `ready` before it imports torch. So this deadline holds
+    /// the import, the model load and the first read.
     pub first_call_deadline: Duration,
-    /// Deadline for any subsequent `recognize` call. Defaults to 15s
-    /// matching `first_call_deadline`; the Swift code reuses the same
-    /// timeout post-warmup, so we follow suit unless overridden.
+    /// Deadline for each later `recognize` call. The default is 15 s.
     pub call_deadline: Duration,
 }
+
+/// The first-call deadline of the EasyOCR daemon. On 2026-11-23, 36 cold calls
+/// on a 4-vCPU Linux guest took about 9 s when the host had spare CPU. The
+/// slowest took 31.5 s under heavy host load, so 60 s gives a margin of 1.9.
+const DAEMON_FIRST_CALL_DEADLINE: Duration = Duration::from_secs(60);
 
 impl OcrChildBridgeConfig {
     /// Sensible defaults for the canonical `python -m ocr_analyzer
@@ -108,7 +111,7 @@ impl OcrChildBridgeConfig {
             ],
             environment: Vec::new(),
             warm_deadline: Duration::from_secs(8),
-            first_call_deadline: Duration::from_secs(15),
+            first_call_deadline: DAEMON_FIRST_CALL_DEADLINE,
             call_deadline: Duration::from_secs(15),
         }
     }
@@ -580,6 +583,14 @@ mod tests {
         );
         assert_eq!(OcrBridgeError::ChildCrashed.code(), "OCR_CHILD_CRASHED");
         assert_eq!(OcrBridgeError::ResponseTimeout.code(), "OCR_TIMEOUT");
+    }
+
+    #[test]
+    fn daemon_deadlines_hold_the_measured_cold_start() {
+        let config = OcrChildBridgeConfig::new("python3");
+        assert_eq!(config.warm_deadline, Duration::from_secs(8));
+        assert_eq!(config.first_call_deadline, Duration::from_secs(60));
+        assert_eq!(config.call_deadline, Duration::from_secs(15));
     }
 
     #[test]

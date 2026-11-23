@@ -93,7 +93,7 @@ disagrees with `surface.rs`, `surface.rs` wins.
 | `IO_ERROR` | Local I/O failure. |
 | `OCR_UNAVAILABLE` | OCR engine cannot be reached/recovered (e.g. EasyOCR bridge down). |
 | `OCR_CHILD_CRASHED` | The OCR daemon subprocess exited unexpectedly. |
-| `OCR_TIMEOUT` | OCR daemon didn't respond within the timeout. |
+| `OCR_TIMEOUT` | The OCR engine did not answer within its deadline. For the EasyOCR daemon, the deadline is 60 s for the first read and 15 s for each later read. |
 | `UNKNOWN_KEY` | Key name not in the supported set (see [key-names.md](key-names.md)). |
 | `UNKNOWN_BUTTON` | Mouse button name not in `{left, right, middle, center}`. |
 | `INTERNAL` | Unclassified internal error. |
