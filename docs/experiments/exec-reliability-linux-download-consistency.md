@@ -1,5 +1,8 @@
 # Linux download consistency (k14)
 
+> Historical report: paths and commands refer to the [archived checkout](README.md).
+> The maintained harness is in [tests/exec-reliability](../../tests/exec-reliability/README.md).
+
 Leaf `linux-download-consistency-k14` of issue #14. It asks how the Linux agent sends a file that changes during a download. It repeats the k7 macOS question on Linux, with the same classes and oracle. This leaf changes no production framing and no production finalisation.
 
 ## Result

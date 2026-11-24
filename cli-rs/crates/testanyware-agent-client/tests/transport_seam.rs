@@ -462,7 +462,7 @@ fn reply(content_length: usize, body: &[u8]) -> Vec<u8> {
 /// (docs/experiments/exec-reliability-linux-download-consistency.md).
 fn recorded_linux_reply(case: &str) -> (Vec<u8>, Vec<u8>) {
     let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(format!(
-        "../../../experiments/exec-reliability/evidence/linux-download-consistency-k14/local-01/cases/{case}/raw"
+        "../../../tests/exec-reliability/fixtures/linux-download-consistency-k14/local-01/cases/{case}/raw"
     ));
     let record: serde_json::Value =
         serde_json::from_slice(&std::fs::read(dir.join("record.json")).unwrap()).unwrap();

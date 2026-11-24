@@ -1,5 +1,8 @@
 # Review of the guest command lifecycle design (k214)
 
+> Historical report: paths and commands refer to the [archived checkout](README.md).
+> The maintained harness is in [tests/exec-reliability](../../tests/exec-reliability/README.md).
+
 Six material findings need triage before `lifecycle-delivery-k213` plans the
 implementation. The design has useful boundaries: one process owner, explicit
 cancellation on a separate connection, a typed outcome, and a download from one

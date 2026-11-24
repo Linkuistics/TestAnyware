@@ -1,5 +1,8 @@
 # macOS download consistency for mutable files (leaf download-consistency-k7)
 
+> Historical report: paths and commands refer to the [archived checkout](README.md).
+> The maintained harness is in [tests/exec-reliability](../../tests/exec-reliability/README.md).
+
 This report asks one question for issue #14 on macOS. Failure D received a truncated
 status record, and the Host CLI labelled the download successful. Which boundary
 caused that result? The report also measures which file changes a download detects,

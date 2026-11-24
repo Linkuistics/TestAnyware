@@ -1,9 +1,0 @@
-{
-  "command": "echo agent=$PPID\necho sha=$(shasum -a 256 /usr/local/bin/testanyware-agent | cut -d\" \" -f1)\necho started=$(ps -o lstart= -p $PPID)\necho first=$(head -n 1 /tmp/testanyware-exit-trace.jsonl)",
-  "exit_code": 0,
-  "ok": true,
-  "schema_version": "1.0",
-  "stderr": "",
-  "stdout": "agent=703\nsha=76e76a484edd59c80075ea40982412e4e1932dc926c433a40e9c3789a05c6bcf\nstarted=Tue Nov 17 00:17:41 2026\nfirst={\"seq\":1,\"t_ns\":36840687958,\"agent\":703,\"threads\":9,\"call\":0,\"event\":\"trace-open\",\"fd\":12,\"kq\":13}",
-  "timed_out": false
-}

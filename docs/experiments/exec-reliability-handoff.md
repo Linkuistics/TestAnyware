@@ -1,5 +1,8 @@
 # Guest command reliability handoff (issue #14)
 
+> Historical report: paths and commands refer to the [archived checkout](README.md).
+> The maintained harness is in [tests/exec-reliability](../../tests/exec-reliability/README.md).
+
 This document hands the result of issue #14 to Ravel-Strategies. It states
 the released contract, the evidence for each acceptance condition, the support
 limits and what the tutorial trial of Ravel-Strategies must run again. It

@@ -1,9 +1,0 @@
-{
-  "command": "set -eu\necho old=$PPID\ntest \"$(shasum -a 256 /tmp/testanyware-agent-k195 | cut -d\" \" -f1)\" = 76e76a484edd59c80075ea40982412e4e1932dc926c433a40e9c3789a05c6bcf\nrm -f /tmp/testanyware-exit-trace.jsonl\nsudo -n install -m 0755 /tmp/testanyware-agent-k195 /usr/local/bin/testanyware-agent\ntest \"$(shasum -a 256 /usr/local/bin/testanyware-agent | cut -d\" \" -f1)\" = 76e76a484edd59c80075ea40982412e4e1932dc926c433a40e9c3789a05c6bcf\nold=$PPID\nexport old\nnohup sh -c 'sleep 2; launchctl kickstart -k gui/$(id -u)/com.linkuistics.testanyware.agent || kill $old' </dev/null >/dev/null 2>&1 &\necho restart-scheduled",
-  "exit_code": 0,
-  "ok": true,
-  "schema_version": "1.0",
-  "stderr": "",
-  "stdout": "old=412\nrestart-scheduled",
-  "timed_out": false
-}

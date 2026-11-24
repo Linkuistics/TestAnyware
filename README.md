@@ -256,6 +256,12 @@ host CLI.
 
 ## Building from Source
 
+Execution reliability tests and their fixtures live in
+[`tests/exec-reliability`](tests/exec-reliability/README.md).
+Run `task diagnostic:test` for the local suite. Historical investigation reports
+and instructions for restoring the full evidence archive are in
+[`docs/experiments`](docs/experiments/README.md).
+
 For contributors only. End users should install via Homebrew (above).
 Building from source overrides the brew-bundled agents via two env
 vars consumed by the golden scripts:

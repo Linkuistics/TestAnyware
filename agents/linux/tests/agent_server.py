@@ -3,7 +3,7 @@
 `server.py` imports the accessibility module, which needs PyGObject and
 pyatspi. The exec path never calls them. When they are missing, this module
 installs empty stand-ins for the import only, as the k5 container did
-(experiments/exec-reliability/linux_k5_stub). An installed real module wins.
+(tests/exec-reliability/linux_k5_stub). An installed real module wins.
 """
 
 from __future__ import annotations

@@ -1,5 +1,8 @@
 # Acceptance plan review (k241)
 
+> Historical report: paths and commands refer to the [archived checkout](README.md).
+> The maintained harness is in [tests/exec-reliability](../../tests/exec-reliability/README.md).
+
 The acceptance plan and checker in producer commit `b62275b4`
 (`acceptance-plan-k223`) need reconciliation before preparation freezes them.
 This review finds false failures of permitted cancellation behaviour and gaps

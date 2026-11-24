@@ -286,7 +286,7 @@ only when all of these conditions hold:
 
 A missing or changed storage-close record means the directory is incomplete.
 So does a record that says `eof_without_close`. These conditions change the contract of the
-retention verifier in `experiments/exec-reliability/retention.py`. The
+retention verifier in `tests/exec-reliability/retention.py`. The
 verifier and its tests change with the writer.
 
 ## Controller-crash limits

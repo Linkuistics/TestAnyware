@@ -1,5 +1,8 @@
 # macOS agent availability after a client disconnect (leaf macos-disconnect-availability-k13)
 
+> Historical report: paths and commands refer to the [archived checkout](README.md).
+> The maintained harness is in [tests/exec-reliability](../../tests/exec-reliability/README.md).
+
 This report asks one question for issue #14 on macOS. When the command CLI stops
 during a long `exec`, does the agent stay available for other requests? The report
 also measures whether the known child of the stopped command survives. It does not

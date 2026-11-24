@@ -1,9 +1,0 @@
-{
-  "command": "for f in /tmp/taw-exec-reliability/child.pid /tmp/vmfit-k15/timeout.pid /tmp/vmfit-k15/cancel.pid; do\n  [ -f \"$f\" ] || continue\n  pid=$(cat \"$f\")\n  cmd=$(ps -p \"$pid\" -o command= | sed 's/ *$//')\n  printf '%s pid=%s command=%s\\n' \"$f\" \"$pid\" \"$cmd\"\n  [ \"$cmd\" = \"sleep 120\" ] || continue\n  kill -TERM \"$pid\"\n  i=0\n  while kill -0 \"$pid\" 2>/dev/null && [ \"$i\" -lt 20 ]; do sleep 0.1; i=$((i + 1)); done\n  if kill -0 \"$pid\" 2>/dev/null; then\n    kill -KILL \"$pid\"; printf \"killed pid=%s\\n\" \"$pid\"\n  else printf \"terminated pid=%s\\n\" \"$pid\"; fi\ndone\nprintf 'cleanup complete\\n'",
-  "exit_code": 0,
-  "ok": true,
-  "schema_version": "1.0",
-  "stderr": "",
-  "stdout": "/tmp/taw-exec-reliability/child.pid pid=630 command=\n/tmp/vmfit-k15/timeout.pid pid=799 command=\n/tmp/vmfit-k15/cancel.pid pid=812 command=sleep 120\nterminated pid=812\ncleanup complete",
-  "timed_out": false
-}

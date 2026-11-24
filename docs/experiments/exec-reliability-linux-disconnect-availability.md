@@ -1,5 +1,8 @@
 # Linux agent availability after a client disconnect (leaf linux-disconnect-availability-k6)
 
+> Historical report: paths and commands refer to the [archived checkout](README.md).
+> The maintained harness is in [tests/exec-reliability](../../tests/exec-reliability/README.md).
+
 This report asks one question for issue #14 on Linux. When the command CLI stops
 during a long `exec`, which boundary blocks the next request? The report also
 measures whether the known child of the stopped command survives. It does not choose

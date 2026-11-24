@@ -1,5 +1,8 @@
 # Acceptance trial plan and checker (k223)
 
+> Historical report: paths and commands refer to the [archived checkout](README.md).
+> The maintained harness is in [tests/exec-reliability](../../tests/exec-reliability/README.md).
+
 Leaf `acceptance-plan-k223` delivers the trial plan and the checker for the
 root acceptance inventory. Leaf `acceptance-plan-k242` integrates the review of
 leaf `acceptance-plan-k241` into them. No guest booted in either leaf. The ten-clone

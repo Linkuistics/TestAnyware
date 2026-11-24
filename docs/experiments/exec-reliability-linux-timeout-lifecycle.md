@@ -1,5 +1,8 @@
 # Linux timeout lifecycle
 
+> Historical report: paths and commands refer to the [archived checkout](README.md).
+> The maintained harness is in [tests/exec-reliability](../../tests/exec-reliability/README.md).
+
 Leaf `linux-timeout-lifecycle-k5` freezes a finite matrix of exec outcomes on
 the Linux agent. It records what each layer reports for each outcome. The layers
 are the agent handler, the agent HTTP response and the Host CLI receipt. The

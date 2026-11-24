@@ -1,9 +1,0 @@
-{
-  "command": "for role in shell child; do\n  f=/tmp/taw-k204/raw-fork/$role.pid; r=raw-fork-$role\n  if ! pid=$(cat \"$f\"); then printf '%s pid-file=unreadable\\n' \"$r\"; continue; fi\n  printf '%s pid=%s\\n' \"$r\" \"$pid\"\n  ps -p \"$pid\" -o pid=,ppid=,pgid=,sid=,stat=,lstart=,args=\n  printf '%s ps-exit=%s\\n' \"$r\" \"$?\"\ndone",
-  "exit_code": 0,
-  "ok": true,
-  "schema_version": "1.0",
-  "stderr": "cat: /tmp/taw-k204/raw-fork/shell.pid: No such file or directory\ncat: /tmp/taw-k204/raw-fork/child.pid: No such file or directory",
-  "stdout": "raw-fork-shell pid-file=unreadable\nraw-fork-child pid-file=unreadable",
-  "timed_out": false
-}

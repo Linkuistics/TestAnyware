@@ -1,9 +1,0 @@
-{
-  "command": "sleep 5\nfor role in shell child; do\n  f=/tmp/taw-k204/cli-fork/$role.pid; r=cli-fork-$role\n  if ! pid=$(cat \"$f\"); then printf '%s pid-file=unreadable\\n' \"$r\"; continue; fi\n  printf '%s pid=%s\\n' \"$r\" \"$pid\"\n  ps -p \"$pid\" -o pid=,ppid=,pgid=,sid=,stat=,lstart=,args=\n  printf '%s ps-exit=%s\\n' \"$r\" \"$?\"\ndone\nfor role in shell child; do\n  f=/tmp/taw-k204/raw-fork/$role.pid; r=raw-fork-$role\n  if ! pid=$(cat \"$f\"); then printf '%s pid-file=unreadable\\n' \"$r\"; continue; fi\n  printf '%s pid=%s\\n' \"$r\" \"$pid\"\n  ps -p \"$pid\" -o pid=,ppid=,pgid=,sid=,stat=,lstart=,args=\n  printf '%s ps-exit=%s\\n' \"$r\" \"$?\"\ndone",
-  "exit_code": 0,
-  "ok": true,
-  "schema_version": "1.0",
-  "stderr": "",
-  "stdout": "cli-fork-shell pid=2018\ncli-fork-shell ps-exit=1\ncli-fork-child pid=2020\n   2020    1130    1142    1142 S    Tue Nov 17 16:50:11 2026 sleep 120\ncli-fork-child ps-exit=0\nraw-fork-shell pid=2026\nraw-fork-shell ps-exit=1\nraw-fork-child pid=2028\n   2028    1130    1142    1142 S    Tue Nov 17 16:50:13 2026 sleep 120\nraw-fork-child ps-exit=0",
-  "timed_out": false
-}

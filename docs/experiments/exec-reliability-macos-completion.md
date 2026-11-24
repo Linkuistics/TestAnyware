@@ -1,5 +1,8 @@
 # macOS synchronous completion timeout
 
+> Historical report: paths and commands refer to the [archived checkout](README.md).
+> The maintained harness is in [tests/exec-reliability](../../tests/exec-reliability/README.md).
+
 Leaf k3 asks why one ordinary macOS command timed out after it had finished.
 This report covers the first slice of k3. The slice preserves the retained
 failure and records its identity. It also shows one ordering in the unchanged

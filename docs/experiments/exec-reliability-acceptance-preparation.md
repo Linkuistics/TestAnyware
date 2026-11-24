@@ -1,5 +1,8 @@
 # Acceptance preparation and freeze (k224)
 
+> Historical report: paths and commands refer to the [archived checkout](README.md).
+> The maintained harness is in [tests/exec-reliability](../../tests/exec-reliability/README.md).
+
 Leaf `acceptance-preparation-k224` prepares the acceptance trial of leaf
 `acceptance-plan-k223` and freezes its inputs. It builds a private Host CLI and
 app, creates two new goldens, and writes the freeze manifest. It runs no trial

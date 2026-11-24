@@ -1,5 +1,8 @@
 # Linux download consistency implementation review — k211
 
+> Historical report: paths and commands refer to the [archived checkout](README.md).
+> The maintained harness is in [tests/exec-reliability](../../tests/exec-reliability/README.md).
+
 Reviewed producer `linux-download-consistency-k14`, commit
 `10e3b96e8025ea09a88e575afd67eb654fa9f306`, against its task, the common
 evidence requirements in `.grove/_BRIEF.md`, ADR-0001 and ADR-0004.

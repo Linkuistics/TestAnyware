@@ -1,9 +1,0 @@
-{
-  "command": "ps -axo pid=,ppid=,user=,comm= | grep -i anyware; agent=$(ps -axo pid=,comm= | awk '$2 ~ /testanyware-agent$/ {print $1}' | paste -sd, -); printf \"agent pids=%s\\n\" \"$agent\"; ps -M -p \"$agent\"",
-  "exit_code": 0,
-  "ok": true,
-  "schema_version": "1.0",
-  "stderr": "",
-  "stdout": "  703     1 admin            /usr/local/bin/testanyware-agent\nagent pids=703\nUSER    PID   TT   %CPU STAT PRI     STIME     UTIME COMMAND\nadmin   703   ??    0.0 S    31T   0:00.01   0:00.01 /usr/local/bin/testanyware-agent\n        703         0.0 S    37T   0:00.00   0:00.00 \n        703         0.0 S    31T   0:00.00   0:00.00 \n        703         0.1 S    31T   0:00.00   0:00.00 \n        703         0.0 S    31T   0:00.00   0:00.00 \n        703         0.0 S    31T   0:00.00   0:00.00 \n        703         1.2 S    31T   0:00.01   0:00.00 \n        703         0.0 S    20T   0:00.01   0:00.01 \n        703         0.0 S    31T   0:00.00   0:00.00 \n        703         0.0 S    31T   0:00.00   0:00.00 \n        703         0.1 S    31T   0:00.00   0:00.00 \n        703         0.0 S    31T   0:00.00   0:00.00",
-  "timed_out": false
-}

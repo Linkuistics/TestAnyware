@@ -1,5 +1,8 @@
 # macOS post-timeout inspection stall (leaf macos-timeout-inspection-k4)
 
+> Historical report: paths and commands refer to the [archived checkout](README.md).
+> The maintained harness is in [tests/exec-reliability](../../tests/exec-reliability/README.md).
+
 This report accounts for issue #14 failure A on macOS. Failure A is the stall of a
 30 s guest inspection that runs immediately after an intentional 2 s timeout. The
 report keeps each old failure apart from later samples and from the ordinary-command

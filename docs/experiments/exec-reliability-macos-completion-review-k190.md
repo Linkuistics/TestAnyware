@@ -1,5 +1,8 @@
 # Live macOS completion review (k190)
 
+> Historical report: paths and commands refer to the [archived checkout](README.md).
+> The maintained harness is in [tests/exec-reliability](../../tests/exec-reliability/README.md).
+
 The retained k186 run contains ten successful serial receipts and twelve
 successful receipts from overlapping host clients. Its reusable verdict path
 can nevertheless accept missing or incomplete evidence. Integration is needed

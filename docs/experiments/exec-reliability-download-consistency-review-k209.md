@@ -1,5 +1,8 @@
 # Review of the k7 download consistency investigation
 
+> Historical report: paths and commands refer to the [archived checkout](README.md).
+> The maintained harness is in [tests/exec-reliability](../../tests/exec-reliability/README.md).
+
 The retained host run demonstrates a metadata/open race and torn reads. Five
 material findings remain before the tooling is reused by
 `linux-download-consistency-k14` and its conclusions become inputs to

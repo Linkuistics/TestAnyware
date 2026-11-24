@@ -1,5 +1,8 @@
 # Linux timeout lifecycle implementation review
 
+> Historical report: paths and commands refer to the [archived checkout](README.md).
+> The maintained harness is in [tests/exec-reliability](../../tests/exec-reliability/README.md).
+
 Review handle: `linux-timeout-lifecycle-k205`.
 Producer: `linux-timeout-lifecycle-k5`, commit
 `5045154d03692231fabd682c1f302f69a30edcbd`.

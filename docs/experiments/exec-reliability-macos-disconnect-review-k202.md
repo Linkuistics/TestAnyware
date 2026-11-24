@@ -1,5 +1,8 @@
 # Review of the macOS disconnect availability diagnostics
 
+> Historical report: paths and commands refer to the [archived checkout](README.md).
+> The maintained harness is in [tests/exec-reliability](../../tests/exec-reliability/README.md).
+
 Review `macos-disconnect-availability-k202` inspects producer
 `macos-disconnect-availability-k13`, commit
 `308c3c4efecc058eadbe5dbfc2be535209dfe5fe`. Four findings require triage before

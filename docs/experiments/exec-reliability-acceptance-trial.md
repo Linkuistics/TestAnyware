@@ -1,5 +1,8 @@
 # Acceptance trial (k225)
 
+> Historical report: paths and commands refer to the [archived checkout](README.md).
+> The maintained harness is in [tests/exec-reliability](../../tests/exec-reliability/README.md).
+
 Leaf `lifecycle-acceptance-k225` ran the frozen acceptance trial of leaf
 `acceptance-plan-k223`. The trial used the freeze manifest of leaf
 `acceptance-preparation-k244`. Five fresh macOS clones and then five fresh

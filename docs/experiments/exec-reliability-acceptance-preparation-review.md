@@ -1,5 +1,8 @@
 # Acceptance preparation review
 
+> Historical report: paths and commands refer to the [archived checkout](README.md).
+> The maintained harness is in [tests/exec-reliability](../../tests/exec-reliability/README.md).
+
 The freeze of `acceptance-preparation-k224` has six gaps that affect its use
 for the ten-clone trial. The image disks and selected runtime tools can change
 without a freeze refusal. The preparation checker also accepts some records

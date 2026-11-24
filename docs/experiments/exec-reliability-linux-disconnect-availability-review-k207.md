@@ -1,5 +1,8 @@
 # Linux disconnect availability implementation review
 
+> Historical report: paths and commands refer to the [archived checkout](README.md).
+> The maintained harness is in [tests/exec-reliability](../../tests/exec-reliability/README.md).
+
 Review handle: `linux-disconnect-availability-k207`.
 Producer: `linux-disconnect-availability-k6`, commit
 `a4db78569a248510c4b5c5bec0964f873290c418`.

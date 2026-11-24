@@ -10,65 +10,9 @@ vars:
   BIN: '{{.ROOT_DIR}}/cli-rs/target/debug/testanyware'
 
 tasks:
-  diagnostic:failure-preserve:
-    desc: Snapshot or compare all earlier evidence before and after the k149 controls
-    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
-    requires:
-      vars: [MODE]
-    cmds:
-      - uv run --locked python evidence/failure-controls-k149/preserve.py {{.MODE | shellQuote}}
-
-  diagnostic:setuid-kill:
-    desc: Retain actual setuid-ps KILL controls through the real helper engine
-    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
-    requires:
-      vars: [OUT]
-    cmds:
-      - uv run --locked --isolated --python 3.12 python evidence/failure-controls-k149/setuid_ps_kill.py {{.OUT | shellQuote}} --trials {{.TRIALS | default "5"}} {{if .MUTANT}}--mutant {{.MUTANT | shellQuote}}{{end}}
-
-  diagnostic:scope-readiness:
-    desc: Reproduce the k145 interrupted live-group shape with declared child readiness
-    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
-    requires:
-      vars: [INPUTS, OUT]
-    cmds:
-      - uv run --locked --isolated --python 3.12 python evidence/failure-controls-k149/scope_readiness.py {{.INPUTS | shellQuote}} {{.OUT | shellQuote}} --repeat {{.REPEAT | default "3"}}
-
-  diagnostic:scope-readiness-k151:
-    desc: Rerun the k145 readiness control with the k151 child audit (absent, present or unknown)
-    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
-    requires:
-      vars: [INPUTS, OUT]
-    cmds:
-      - uv run --locked --isolated --python 3.12 python evidence/failure-controls-k151/scope_readiness.py {{.INPUTS | shellQuote}} {{.OUT | shellQuote}} --repeat {{.REPEAT | default "3"}}
-
-  diagnostic:absence-controls:
-    desc: Show that the k149 absence predicate fails and the k151 verdict passes on real ps results
-    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
-    requires:
-      vars: [OUT]
-    cmds:
-      - uv run --locked --isolated --python 3.12 python evidence/failure-controls-k151/absence_controls.py {{.OUT | shellQuote}}
-
-  diagnostic:admission-timing:
-    desc: Separate reap cutoff admission from syscall execution for one input set
-    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
-    requires:
-      vars: [INPUTS, OUT]
-    cmds:
-      - uv run --locked --isolated --python 3.12 python evidence/failure-controls-k149/admission_timing.py {{.INPUTS | shellQuote}} {{.OUT | shellQuote}} --repeat {{.REPEAT | default "5"}}
-
-  diagnostic:failure-prepare:
-    desc: Freeze one k149 input set with an optional declared mutation
-    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
-    requires:
-      vars: [SOURCE, DEST]
-    cmds:
-      - uv run --locked python evidence/failure-controls-k149/prepare.py {{.SOURCE | shellQuote}} {{.DEST | shellQuote}} {{if .MUTANT}}--mutant {{.MUTANT | shellQuote}}{{end}}
-
   diagnostic:storage-controls:
     desc: Run only the evidence-storage controls, the nine required controls and the review controls
-    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
+    dir: '{{.ROOT_DIR}}/tests/exec-reliability'
     cmds:
       - uv run --locked python -m pytest -p no:cacheprovider -rxXs test_storage_controls.py
 
@@ -116,17 +60,6 @@ tasks:
       - mkdir -p {{.OUT | shellQuote}}
       - uv run --locked --isolated --python 3.12 python -m pytest -vv -p no:cacheprovider --junitxml={{.OUT | shellQuote}}/pytest.xml test_worker_capture.py -k "fork_failure_lost_result_eof_order or (worker_fork_failure_evidence and lost-result)"
 
-  diagnostic:foreign-denial:
-    desc: Drive real controller termination against a separately owned foreign-UID fixture (pass SELF=1 for the owned plumbing check)
-    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
-    requires:
-      vars: [INPUTS, OUT]
-    vars:
-      OWNER: '{{.OWNER | default ""}}'
-      SELF: '{{.SELF | default ""}}'
-    cmds:
-      - uv run --locked --isolated --python 3.12 python -I evidence/failure-controls-k149/foreign_denial.py {{.INPUTS | shellQuote}} {{.OUT | shellQuote}} {{if .SELF}}--self-fixture{{else}}--owner-dir {{.OWNER | shellQuote}}{{end}}
-
   diagnostic:scope-parent-tests:
     desc: Run the scope-parent group tests in one frozen input set with retained receipts
     dir: '{{.INPUTS}}'
@@ -138,90 +71,23 @@ tasks:
       - mkdir -p {{.OUT | shellQuote}}
       - uv run --locked --isolated --python 3.12 python -m pytest -vv -p no:cacheprovider --junitxml={{.OUT | shellQuote}}/pytest.xml test_controller.py -k "exited_leader_does_not_hide or live_group_is_failure_even"
 
-  diagnostic:ps-latency:
-    desc: Measure real ps latency idle, under CPU load and against exiting processes
-    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
-    requires:
-      vars: [OUT]
-    cmds:
-      - uv run --locked --isolated --python 3.12 python -I evidence/failure-controls-k149/ps_latency.py {{.OUT | shellQuote}}
-
-  diagnostic:exiting-leader:
-    desc: Run real slow-exiting group leaders through one frozen controller input set
-    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
-    requires:
-      vars: [INPUTS, OUT]
-    vars:
-      REPEAT: '{{.REPEAT | default "10"}}'
-    cmds:
-      - uv run --locked --isolated --python 3.12 python -I evidence/failure-controls-k149/exiting_leader.py {{.INPUTS | shellQuote}} {{.OUT | shellQuote}} --repeat {{.REPEAT}}
-
-  diagnostic:exit-latency:
-    desc: Measure scope-parent leader exit latency after group TERM for one input set
-    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
-    requires:
-      vars: [INPUTS, OUT]
-    cmds:
-      - uv run --locked --isolated --python 3.12 python evidence/failure-controls-k149/exit_latency.py {{.INPUTS | shellQuote}} {{.OUT | shellQuote}} --repeat {{.REPEAT | default "20"}} --load {{.LOAD | default "0"}}
-
-  diagnostic:failure-tools:
-    desc: Check k149 and k151 failure-control evidence tooling
-    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
-    cmds:
-      - uv run --locked python -m ruff check evidence/failure-controls-k149/*.py
-      - uv run --locked python -m ruff format --check evidence/failure-controls-k149/*.py
-      - uv run --locked python -m pyright evidence/failure-controls-k149/*.py
-      - uv run --locked python -m ruff check evidence/failure-controls-k151/*.py
-      - uv run --locked python -m ruff format --check evidence/failure-controls-k151/*.py
-      - uv run --locked python -m pyright evidence/failure-controls-k151/*.py
-
-  diagnostic:deadline-stall:
-    desc: Run the k154 worker-deadline control in frozen INPUTS, into a new OUT directory (STALL=1 delays the first runtime signal to the deadline, SURVEY=1 records non-failing tests as notes)
-    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
-    requires:
-      vars: [INPUTS, OUT]
-    cmds:
-      - uv run --locked --isolated --python 3.12 python -I evidence/worker-deadline-cleanup-k154/stall_control.py {{.INPUTS | shellQuote}} {{.OUT | shellQuote}} {{if .STALL}}--stall{{end}} {{if .SURVEY}}--survey{{end}} {{range $t := splitList "," (.TESTS | default "")}}{{if $t}}--test {{$t | shellQuote}} {{end}}{{end}}
-
-  diagnostic:macos-completion-retained:
-    desc: Compare the retained issue #14 macOS evidence with the k3 manifest (MODE=snapshot writes it once)
-    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
-    cmds:
-      - uv run --locked --isolated --python 3.12 python -I evidence/macos-completion-k3/retained.py {{.MODE | default "compare" | shellQuote}}
-
-  diagnostic:macos-completion-old-path:
-    desc: 'Build the unchanged agent ProcessRunner into the k3 probe and run its frozen GCD-starvation plan into a new OUT directory. Known defect: exits 0 when the verdict equals EXPECT (default defect). VARIANT=single-hop builds the detector control, which is not a repair'
-    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
-    requires:
-      vars: [OUT]
-    cmds:
-      - uv run --locked --isolated --python 3.12 python -I evidence/macos-completion-k3/old_path.py {{.OUT | shellQuote}} --variant {{.VARIANT | default "old" | shellQuote}} --expect {{.EXPECT | default "defect" | shellQuote}} --trial-bound-seconds {{.TRIAL_BOUND | default "20" | shellQuote}}
-
-  diagnostic:macos-completion-tools:
-    desc: Check the k3 macOS completion tooling
-    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
-    cmds:
-      - uv run --locked python -m ruff check evidence/macos-completion-k3/*.py
-      - uv run --locked python -m ruff format --check evidence/macos-completion-k3/*.py
-      - uv run --locked python -m pyright evidence/macos-completion-k3/*.py
-
   diagnostic:macos-completion-live:
     desc: 'Boot one owned clone of testanyware-golden-macos-27 and run the frozen k186 plan into a new OUT directory: ten serial exact `printf ordinary-ok` requests, three rounds of four concurrent requests and a guest pool read. The controller disposes the clone. OUT-outer keeps the inventories, the app pid, the source and host identities and the receipt check'
     requires:
       vars: [OUT]
     cmds:
-      - experiments/exec-reliability/completion_k186_run.sh {{.OUT | shellQuote}}
+      - tests/exec-reliability/completion_k186_run.sh {{.OUT | shellQuote}}
 
   diagnostic:macos-completion-live-check:
     desc: Judge one retained k186 controller run directory RUN, relative to the repository root, against the frozen shape and its host evidence. Exit 0 only for verdict pass
     requires:
       vars: [RUN]
     cmds:
-      - uv run --project experiments/exec-reliability --locked python -I experiments/exec-reliability/completion_k186_check.py {{.RUN | shellQuote}}
+      - uv run --project tests/exec-reliability --locked python -I tests/exec-reliability/completion_k186_check.py {{.RUN | shellQuote}}
 
   diagnostic:macos-completion-live-tools:
     desc: Check the k186 live completion tooling and run its controls, which need no VM
-    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
+    dir: '{{.ROOT_DIR}}/tests/exec-reliability'
     cmds:
       - uv run --locked python -m ruff check completion_k186.py completion_k186_check.py concurrent_k186.py test_completion_k186.py
       - uv run --locked python -m ruff format --check completion_k186.py completion_k186_check.py concurrent_k186.py test_completion_k186.py
@@ -234,18 +100,18 @@ tasks:
     requires:
       vars: [OUT]
     cmds:
-      - experiments/exec-reliability/timeout_k4_run.sh {{.OUT | shellQuote}}
+      - tests/exec-reliability/timeout_k4_run.sh {{.OUT | shellQuote}}
 
   diagnostic:macos-timeout-inspection-check:
     desc: 'Judge one retained k4 controller run directory RUN, relative to the repository root. Report the evidence (complete, incomplete or absent) and the post-timeout stall (reproduced, not-reproduced or unknown). Exit 0 only when the stall result is determined and the clone was disposed'
     requires:
       vars: [RUN]
     cmds:
-      - uv run --project experiments/exec-reliability --locked python experiments/exec-reliability/timeout_k4_check.py {{.RUN | shellQuote}}
+      - uv run --project tests/exec-reliability --locked python tests/exec-reliability/timeout_k4_check.py {{.RUN | shellQuote}}
 
   diagnostic:macos-timeout-inspection-tools:
     desc: Check the k4 post-timeout inspection tooling and run its controls, which need no VM
-    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
+    dir: '{{.ROOT_DIR}}/tests/exec-reliability'
     cmds:
       - uv run --locked python -m ruff check timeout_k4.py timeout_k4_check.py test_timeout_k4.py
       - uv run --locked python -m ruff format --check timeout_k4.py timeout_k4_check.py test_timeout_k4.py
@@ -258,18 +124,18 @@ tasks:
     requires:
       vars: [OUT]
     cmds:
-      - experiments/exec-reliability/timeout_k193_run.sh {{.OUT | shellQuote}}
+      - tests/exec-reliability/timeout_k193_run.sh {{.OUT | shellQuote}}
 
   diagnostic:macos-timeout-inspection-r3-check:
     desc: Judge one run of the k193 r3-only condition with checker revision 3
     requires:
       vars: [RUN]
     cmds:
-      - uv run --project experiments/exec-reliability --locked python experiments/exec-reliability/timeout_k193_check.py {{.RUN | shellQuote}}
+      - uv run --project tests/exec-reliability --locked python tests/exec-reliability/timeout_k193_check.py {{.RUN | shellQuote}}
 
   diagnostic:macos-timeout-inspection-r3-tools:
     desc: Check the k193 r3-only tooling and run its controls and the k4 controls, which need no VM
-    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
+    dir: '{{.ROOT_DIR}}/tests/exec-reliability'
     cmds:
       - uv run --locked python -m ruff check timeout_k193.py timeout_k193_check.py test_timeout_k193.py
       - uv run --locked python -m ruff format --check timeout_k193.py timeout_k193_check.py test_timeout_k193.py
@@ -283,25 +149,25 @@ tasks:
     requires:
       vars: [OUT]
     cmds:
-      - experiments/exec-reliability/disconnect_k13_run.sh host {{.OUT | shellQuote}}
+      - tests/exec-reliability/disconnect_k13_run.sh host {{.OUT | shellQuote}}
 
   diagnostic:macos-disconnect-availability:
     desc: Run the k13 control, concurrent and term modes once on one fresh unchanged macOS clone
     requires:
       vars: [OUT]
     cmds:
-      - experiments/exec-reliability/disconnect_k13_run.sh live {{.OUT | shellQuote}}
+      - tests/exec-reliability/disconnect_k13_run.sh live {{.OUT | shellQuote}}
 
   diagnostic:macos-disconnect-availability-check:
     desc: Judge one k13 run again. MODE is host or live, and OUT is the run directory
     requires:
       vars: [MODE, OUT]
     cmds:
-      - uv run --project experiments/exec-reliability --locked python experiments/exec-reliability/disconnect_k13_check.py {{.MODE | shellQuote}} {{.OUT | shellQuote}}
+      - uv run --project tests/exec-reliability --locked python tests/exec-reliability/disconnect_k13_check.py {{.MODE | shellQuote}} {{.OUT | shellQuote}}
 
   diagnostic:macos-disconnect-availability-tools:
     desc: Check the k13 tooling and run its controls, which need no VM
-    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
+    dir: '{{.ROOT_DIR}}/tests/exec-reliability'
     cmds:
       - uv run --locked python -m ruff check disconnect_k13.py disconnect_k13_burst.py disconnect_k13_host.py disconnect_k13_seam.py disconnect_k13_check.py test_disconnect_k13.py
       - uv run --locked python -m ruff format --check disconnect_k13.py disconnect_k13_burst.py disconnect_k13_host.py disconnect_k13_seam.py disconnect_k13_check.py test_disconnect_k13.py
@@ -309,60 +175,26 @@ tasks:
       - shellcheck disconnect_k13_run.sh
       - uv run --locked python -m pytest -q -p no:cacheprovider test_disconnect_k13.py
 
-  diagnostic:macos-process-fixtures:
-    desc: 'Run the macOS agent suite beside an unrelated `sleep 300` control into a new OUT directory. ARM=owned (default) expects the control to survive. ARM=broad restores the pre-k185 broad cleanup in a temporary copy and expects the control to be killed. The broad cleanup signals every matching process of this user, so ARM=broad also needs ISOLATED_HOST=1, which declares a host where no other process of this user can match. It still refuses to run while it sees such a process'
-    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
-    requires:
-      vars: [OUT]
-    cmds:
-      - uv run --locked --isolated --python 3.12 python -I evidence/macos-process-fixtures-k185/fixtures.py {{.OUT | shellQuote}} --arm {{.ARM | default "owned" | shellQuote}} --expect {{.EXPECT | default (eq (.ARM | default "owned") "broad" | ternary "killed" "survives") | shellQuote}} --runs {{.RUNS | default "3" | shellQuote}} --baseline-rev {{.BASELINE_REV | default "990641750f0735fcb400e93fcc0974800f26f28b" | shellQuote}}{{if .ISOLATED_HOST}} --isolated-host{{end}}
-
-  diagnostic:macos-process-fixtures-tools:
-    desc: Check the k185 process-fixture control tooling
-    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
-    cmds:
-      - uv run --locked python -m ruff check evidence/macos-process-fixtures-k185/*.py
-      - uv run --locked python -m ruff format --check evidence/macos-process-fixtures-k185/*.py
-      - uv run --locked python -m pyright evidence/macos-process-fixtures-k185/*.py
-
-  diagnostic:macos-exit-observation-controls:
-    desc: 'Build the macOS agent with the k195 exit trace and run its four ordering controls RUNS times (default 3) into a new OUT directory. Also checks that the default release agent holds no trace symbol'
-    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
-    requires:
-      vars: [OUT]
-    cmds:
-      - uv run --locked --isolated --python 3.12 python -I evidence/macos-exit-observation-k195/controls.py {{.OUT | shellQuote}} --runs {{.RUNS | default "3" | shellQuote}}
-
   diagnostic:macos-exit-observation:
     desc: 'Run the k195 traced workload once on one owned macOS clone into a new OUT directory. Needs the owner''s app handover first: the development app answers and the installed app does not run. Builds the traced agent, installs it in the clone, runs the k4 run 02 workload, downloads the guest exit trace and disposes the clone'
     deps: [cli:build]
     requires:
       vars: [OUT]
     cmds:
-      - sh experiments/exec-reliability/exit_k195_run.sh {{.OUT | shellQuote}}
+      - sh tests/exec-reliability/exit_k195_run.sh {{.OUT | shellQuote}}
 
   diagnostic:macos-exit-observation-check:
     desc: Judge one k195 traced run directory RUN (OUT/<run_id>) and print the result
-    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
+    dir: '{{.ROOT_DIR}}/tests/exec-reliability'
     requires:
       vars: [RUN]
     cmds:
       - uv run --locked python exit_k195_check.py {{.RUN | shellQuote}}
 
-  diagnostic:macos-exit-observation-tools:
-    desc: Check the k195 exit-observation control and guest tooling
-    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
-    cmds:
-      - uv run --locked python -m ruff check evidence/macos-exit-observation-k195/*.py exit_k195.py exit_k195_check.py test_exit_k195.py
-      - uv run --locked python -m ruff format --check evidence/macos-exit-observation-k195/*.py exit_k195.py exit_k195_check.py test_exit_k195.py
-      - uv run --locked python -m pyright evidence/macos-exit-observation-k195/*.py exit_k195.py exit_k195_check.py test_exit_k195.py
-      - shellcheck exit_k195_run.sh
-      - uv run --locked python -m pytest -q -p no:cacheprovider test_exit_k195.py
-
   diagnostic:macos-exec-outcomes:
     desc: 'Run the k12 exec outcome matrix once on the host into a new OUT directory. Builds the unchanged and the traced runner probes and a loopback copy of the agent, then runs eight cases through the reference, process, traced, HTTP, CLI text and CLI JSON seams. Uses no clone and no default socket'
     deps: [cli:build, app:build]
-    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
+    dir: '{{.ROOT_DIR}}/tests/exec-reliability'
     requires:
       vars: [OUT]
     cmds:
@@ -370,7 +202,7 @@ tasks:
 
   diagnostic:macos-exec-outcomes-check:
     desc: Judge one k12 OUT directory. Fails on unsound evidence, not on the defects of the old path
-    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
+    dir: '{{.ROOT_DIR}}/tests/exec-reliability'
     requires:
       vars: [OUT]
     cmds:
@@ -378,7 +210,7 @@ tasks:
 
   diagnostic:macos-exec-outcomes-old-path:
     desc: Detect the old exec path in one k12 OUT directory. Passes only when the sound evidence shows every frozen defect, so a fixed runner makes it fail
-    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
+    dir: '{{.ROOT_DIR}}/tests/exec-reliability'
     requires:
       vars: [OUT]
     cmds:
@@ -386,7 +218,7 @@ tasks:
 
   diagnostic:macos-exec-outcomes-record:
     desc: Judge the typed exec records of one k12 OUT directory at the HTTP and Host CLI JSON seams. Passes only when the evidence is sound and every case is faithful, so an agent without the record makes it fail
-    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
+    dir: '{{.ROOT_DIR}}/tests/exec-reliability'
     requires:
       vars: [OUT]
     cmds:
@@ -394,7 +226,7 @@ tasks:
 
   diagnostic:macos-exec-outcomes-tools:
     desc: Check the k12 exec outcome runner, seams, checker and probe
-    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
+    dir: '{{.ROOT_DIR}}/tests/exec-reliability'
     cmds:
       - uv run --locked python -m ruff check outcomes_k12.py outcomes_k12_seam.py outcomes_k12_check.py test_outcomes_k12.py
       - uv run --locked python -m ruff format --check outcomes_k12.py outcomes_k12_seam.py outcomes_k12_check.py test_outcomes_k12.py
@@ -404,7 +236,7 @@ tasks:
   diagnostic:linux-timeout-lifecycle:
     desc: 'Run the k5 Linux exec outcome and timeout lifecycle matrix once into a new OUT directory. Runs the unchanged Linux agent in fresh containers of one pinned image, through the reference, process, traced, HTTP, CLI text and CLI JSON seams. Uses no clone, no VM and no default socket'
     deps: [cli:build, app:build]
-    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
+    dir: '{{.ROOT_DIR}}/tests/exec-reliability'
     requires:
       vars: [OUT]
     cmds:
@@ -412,7 +244,7 @@ tasks:
 
   diagnostic:linux-timeout-lifecycle-check:
     desc: Judge one k5 OUT directory. Fails on unsound evidence, not on the defects of the old path
-    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
+    dir: '{{.ROOT_DIR}}/tests/exec-reliability'
     requires:
       vars: [OUT]
     cmds:
@@ -420,7 +252,7 @@ tasks:
 
   diagnostic:linux-timeout-lifecycle-old-path:
     desc: Detect the old Linux exec path in one k5 OUT directory. Passes only when the sound evidence shows every frozen defect, so a fixed agent makes it fail
-    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
+    dir: '{{.ROOT_DIR}}/tests/exec-reliability'
     requires:
       vars: [OUT]
     cmds:
@@ -428,7 +260,7 @@ tasks:
 
   diagnostic:linux-timeout-lifecycle-tools:
     desc: Check the k5 Linux timeout lifecycle runner, seams, checker and stubs
-    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
+    dir: '{{.ROOT_DIR}}/tests/exec-reliability'
     cmds:
       - uv run --locked python -m ruff check linux_k5.py linux_k5_seam.py linux_k5_check.py test_linux_k5.py linux_k5_stub
       - uv run --locked python -m ruff format --check linux_k5.py linux_k5_seam.py linux_k5_check.py test_linux_k5.py linux_k5_stub
@@ -440,18 +272,18 @@ tasks:
     requires:
       vars: [OUT]
     cmds:
-      - experiments/exec-reliability/linux_k204_run.sh {{.OUT | shellQuote}}
+      - tests/exec-reliability/linux_k204_run.sh {{.OUT | shellQuote}}
 
   diagnostic:linux-timeout-live-check:
     desc: 'Judge one retained k204 controller run directory RUN, relative to the repository root. Report the evidence, the child survival, the r5 fixture survival and the post-timeout stall. Exit 0 only when survival and stall are determined and the clone was disposed'
     requires:
       vars: [RUN]
     cmds:
-      - uv run --project experiments/exec-reliability --locked python experiments/exec-reliability/linux_k204_check.py {{.RUN | shellQuote}}
+      - uv run --project tests/exec-reliability --locked python tests/exec-reliability/linux_k204_check.py {{.RUN | shellQuote}}
 
   diagnostic:linux-timeout-live-tools:
     desc: Check the k204 Linux timeout live runner, raw client, checker and controls
-    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
+    dir: '{{.ROOT_DIR}}/tests/exec-reliability'
     cmds:
       - uv run --locked python -m ruff check linux_k204.py linux_k204_raw.py linux_k204_check.py test_linux_k204.py
       - uv run --locked python -m ruff format --check linux_k204.py linux_k204_raw.py linux_k204_check.py test_linux_k204.py
@@ -464,25 +296,25 @@ tasks:
     requires:
       vars: [OUT]
     cmds:
-      - experiments/exec-reliability/linux_k6_run.sh container {{.OUT | shellQuote}}
+      - tests/exec-reliability/linux_k6_run.sh container {{.OUT | shellQuote}}
 
   diagnostic:linux-disconnect-live:
     desc: 'Boot one fresh unchanged clone of testanyware-golden-linux-24.04 and run the unchanged k13 burst into a new OUT directory: a no-interruption control, a request during execution and SIGTERM of the CLI at 2 s, each followed by inspection, health, an ordinary exec and a partial-file download. The controller cleans up only the identified owned children and disposes the clone. OUT-outer keeps the identities and the check'
     requires:
       vars: [OUT]
     cmds:
-      - experiments/exec-reliability/linux_k6_run.sh live {{.OUT | shellQuote}}
+      - tests/exec-reliability/linux_k6_run.sh live {{.OUT | shellQuote}}
 
   diagnostic:linux-disconnect-check:
     desc: 'Judge one retained k6 OUT directory, relative to the repository root. MODE is container or live. Classify each follow-up as baseline, responsive, blocked or failed, and the handler and the child separately. The run directory is found inside OUT. The result goes to OUT/RESULT, by default check.json. Use another RESULT to re-judge a retained OUT. Exit 0 only when the evidence is complete'
     requires:
       vars: [MODE, OUT]
     cmds:
-      - uv run --project experiments/exec-reliability --locked python experiments/exec-reliability/linux_k6_check.py {{.MODE | shellQuote}} {{.OUT | shellQuote}} {{.RESULT | default "check.json" | shellQuote}}
+      - uv run --project tests/exec-reliability --locked python tests/exec-reliability/linux_k6_check.py {{.MODE | shellQuote}} {{.OUT | shellQuote}} {{.RESULT | default "check.json" | shellQuote}}
 
   diagnostic:linux-disconnect-tools:
     desc: Check the k6 Linux disconnect controller, seam, checker, runner and controls
-    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
+    dir: '{{.ROOT_DIR}}/tests/exec-reliability'
     cmds:
       - uv run --locked python -m ruff check linux_k6.py linux_k6_seam.py linux_k6_check.py test_linux_k6.py
       - uv run --locked python -m ruff format --check linux_k6.py linux_k6_seam.py linux_k6_check.py test_linux_k6.py
@@ -495,18 +327,18 @@ tasks:
     requires:
       vars: [OUT]
     cmds:
-      - experiments/exec-reliability/download_k7_run.sh {{.OUT | shellQuote}}
+      - tests/exec-reliability/download_k7_run.sh {{.OUT | shellQuote}}
 
   diagnostic:download-consistency-check:
     desc: 'Judge one retained k7 OUT directory, relative to the repository root. Classify each download as allowed-complete, detected-failure, undetected-wrong or a leak, and recheck the oracle controls and the historical failure D digests. The result goes to OUT/RESULT, by default check.json. Use another RESULT to re-judge a retained OUT. Exit 0 only when the evidence is complete'
     requires:
       vars: [OUT]
     cmds:
-      - uv run --project experiments/exec-reliability --locked python experiments/exec-reliability/download_k7_check.py {{.OUT | shellQuote}} {{.RESULT | default "check.json" | shellQuote}}
+      - uv run --project tests/exec-reliability --locked python tests/exec-reliability/download_k7_check.py {{.OUT | shellQuote}} {{.RESULT | default "check.json" | shellQuote}}
 
   diagnostic:download-consistency-tools:
     desc: Check the k7 download consistency controller, shim, checker, runner and controls
-    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
+    dir: '{{.ROOT_DIR}}/tests/exec-reliability'
     cmds:
       - uv run --locked python -m ruff check download_k7.py download_k7_check.py test_download_k7.py
       - uv run --locked python -m ruff format --check download_k7.py download_k7_check.py test_download_k7.py
@@ -520,100 +352,24 @@ tasks:
     requires:
       vars: [OUT]
     cmds:
-      - experiments/exec-reliability/download_k14_run.sh {{.OUT | shellQuote}}
+      - tests/exec-reliability/download_k14_run.sh {{.OUT | shellQuote}}
 
   diagnostic:linux-download-consistency-check:
     desc: 'Judge one retained k14 OUT directory. Classify every raw and Host CLI download, compare the agent bytes with the received bytes, and recheck the file semantics, oracle, stress, publication, streaming, loopback and disposal controls. The result goes to OUT/RESULT, by default check.json. Use another RESULT to re-judge a retained OUT. Exit 0 only when the evidence is complete'
     requires:
       vars: [OUT]
     cmds:
-      - uv run --project experiments/exec-reliability --locked python experiments/exec-reliability/download_k14_check.py {{.OUT | shellQuote}} {{.RESULT | default "check.json" | shellQuote}}
+      - uv run --project tests/exec-reliability --locked python tests/exec-reliability/download_k14_check.py {{.OUT | shellQuote}} {{.RESULT | default "check.json" | shellQuote}}
 
   diagnostic:linux-download-consistency-tools:
     desc: Check the k14 Linux download consistency controller, seam, checker, runner and controls
-    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
+    dir: '{{.ROOT_DIR}}/tests/exec-reliability'
     cmds:
       - uv run --locked python -m ruff check download_k14.py download_k14_seam.py download_k14_check.py test_download_k14.py
       - uv run --locked python -m ruff format --check download_k14.py download_k14_seam.py download_k14_check.py test_download_k14.py
       - uv run --locked python -m pyright download_k14.py download_k14_seam.py download_k14_check.py test_download_k14.py
       - shellcheck download_k14_run.sh
       - uv run --locked python -m pytest -q -p no:cacheprovider test_download_k14.py
-
-  diagnostic:deadline-stall-tools:
-    desc: Check the k154 worker-deadline control tooling
-    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
-    cmds:
-      - uv run --locked python -m ruff check evidence/worker-deadline-cleanup-k154/*.py
-      - uv run --locked python -m ruff format --check evidence/worker-deadline-cleanup-k154/*.py
-      - uv run --locked python -m pyright evidence/worker-deadline-cleanup-k154/*.py
-
-  diagnostic:child-inventory:
-    desc: List each child PID that the k154 control runs record, with the reaper and signaller that receipts name (k157)
-    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
-    cmds:
-      - uv run --locked --isolated --python 3.12 python -I evidence/worker-deadline-cleanup-k157/child_inventory.py
-      - uv run --locked python -m ruff check evidence/worker-deadline-cleanup-k157/child_inventory.py
-      - uv run --locked python -m ruff format --check evidence/worker-deadline-cleanup-k157/child_inventory.py
-      - uv run --locked python -m pyright evidence/worker-deadline-cleanup-k157/child_inventory.py
-
-  diagnostic:soak-tools:
-    desc: Check the k152 soak, timeline and control tooling
-    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
-    cmds:
-      - uv run --locked python -m ruff check evidence/historical-soak-k152/*.py
-      - uv run --locked python -m ruff format --check evidence/historical-soak-k152/*.py
-      - uv run --locked python -m pyright evidence/historical-soak-k152/*.py
-
-  diagnostic:soak-control:
-    desc: Run the k152 frozen timing control once in frozen INPUTS, into a new OUT directory
-    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
-    requires:
-      vars: [INPUTS, OUT]
-    cmds:
-      - uv run --locked --isolated --python 3.12 python evidence/historical-soak-k152/soak.py {{.INPUTS | shellQuote}} {{.OUT | shellQuote}} --plan evidence/historical-soak-k152/control-plan.json
-      - uv run --locked --isolated --python 3.12 python evidence/historical-soak-k152/control.py {{.OUT | shellQuote}} {{.OUT | shellQuote}}/control.json
-
-  diagnostic:soak:
-    desc: Run the k152 soak once to its frozen plan in frozen INPUTS, into a new OUT directory
-    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
-    requires:
-      vars: [INPUTS, OUT]
-    cmds:
-      - uv run --locked --isolated --python 3.12 python evidence/historical-soak-k152/soak.py {{.INPUTS | shellQuote}} {{.OUT | shellQuote}} --plan evidence/historical-soak-k152/plan.json
-
-  diagnostic:soak-analyse:
-    desc: Classify each run of a finished k152 SOAK directory against the open cases
-    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
-    requires:
-      vars: [SOAK]
-    cmds:
-      - uv run --locked --isolated --python 3.12 python evidence/historical-soak-k152/analyse.py {{.SOAK | shellQuote}} {{.SOAK | shellQuote}}/analysis.json
-
-  diagnostic:soak-recheck:
-    desc: Recheck the retained k152 timing records with the k155 rules, without a workload
-    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
-    cmds:
-      - uv run --locked python -m ruff check evidence/historical-soak-k155/*.py
-      - uv run --locked python -m ruff format --check evidence/historical-soak-k155/*.py
-      - uv run --locked python -m pyright evidence/historical-soak-k155/*.py
-      - uv run --locked --isolated --python 3.12 python evidence/historical-soak-k155/recheck.py evidence/historical-soak-k152 evidence/historical-soak-k155/recheck.json
-
-  diagnostic:overlap-audit:
-    desc: Verify retained worker overlap comparisons and independent receipts
-    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
-    requires:
-      vars: [OUT]
-    cmds:
-      - uv run --locked python evidence/worker-overlap-k146/audit.py {{.OUT | shellQuote}}
-
-  diagnostic:overlap-tools:
-    desc: Check worker overlap evidence tooling
-    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
-    cmds:
-      - uv run --locked python -m ruff check evidence/worker-overlap-k146/*.py
-      - uv run --locked python -m ruff format --check evidence/worker-overlap-k146/*.py
-      - uv run --locked python -m pyright evidence/worker-overlap-k146/audit.py evidence/worker-overlap-k146/prepare.py evidence/worker-overlap-k146/preserve.py evidence/worker-overlap-k146/run_condition.py
-      - uv run --locked python -m pytest -q evidence/worker-overlap-k146/test_audit.py
 
   diagnostic:overlap-prose:
     desc: Check prose for the worker overlap increment
@@ -622,365 +378,15 @@ tasks:
     cmds:
       - python3 /Users/antony/.cache/ravel/skills/v1/snapshots/56bcd07b87f46a7b9ff92eed5a5a128f10d3ce64be2f7d934be898e058782212/tree/craft/technical-communication/scripts/ste-lint.py {{.FILES}}
 
-  diagnostic:overlap-prepare:
-    desc: Freeze worker/teardown overlap inputs in a fresh directory
-    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
-    requires:
-      vars: [INPUTS, OUT]
-    cmds:
-      - uv run --locked python evidence/worker-overlap-k146/prepare.py {{.INPUTS | shellQuote}} {{.OUT | shellQuote}} {{if .MUTANT}}--mutant {{.MUTANT | shellQuote}}{{end}} {{if .BASELINE}}--baseline {{.BASELINE | shellQuote}}{{end}}
-
-  diagnostic:overlap-check:
-    desc: Retain bounded frozen worker/teardown checks
-    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
-    requires:
-      vars: [INPUTS, OUT]
-    cmds:
-      - uv run --locked --isolated --python 3.12 python evidence/worker-overlap-k146/run_condition.py {{.INPUTS | shellQuote}} {{.OUT | shellQuote}} {{.MODE | default "controls" | shellQuote}} {{if .SELECT}}--select {{.SELECT | shellQuote}}{{end}}
-
-  diagnostic:overlap-preserve:
-    desc: Inventory and compare all earlier evidence bytes
-    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
-    requires:
-      vars: [MODE]
-    cmds:
-      - uv run --locked python evidence/worker-overlap-k146/preserve.py {{.MODE | shellQuote}}
-
-  diagnostic:overlap-format:
-    desc: Format worker overlap sources and tooling before measurements
-    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
-    cmds:
-      - uv run --locked python -m ruff format controller.py worker_capture.py test_controller.py evidence/worker-overlap-k146/*.py
-
-  diagnostic:scope-preserve:
-    desc: Verify every prior evidence path for the scope readiness repair
-    dir: experiments/exec-reliability
-    cmds:
-      - uv run --locked python evidence/scope-readiness-k143/preserve.py {{.MODE | shellQuote}}
-
-  diagnostic:scope-prepare:
-    desc: Freeze all diagnostic inputs for the scope readiness repair
-    dir: experiments/exec-reliability
-    cmds:
-      - uv run --locked python evidence/scope-readiness-k143/prepare.py {{.INPUTS | shellQuote}} {{.OUT | shellQuote}} {{if .MUTANT}}--mutant {{.MUTANT | shellQuote}}{{end}}
-
-  diagnostic:scope-check:
-    desc: Retain bounded scope readiness controls or the full diagnostic suite
-    dir: experiments/exec-reliability
-    cmds:
-      - uv run --locked --isolated --python 3.12 python evidence/scope-readiness-k143/run_condition.py {{.INPUTS | shellQuote}} {{.OUT | shellQuote}} {{.MODE | default "controls" | shellQuote}} {{if .SELECT}}--select {{.SELECT | shellQuote}}{{end}}
-
-  diagnostic:scope-tools:
-    desc: Format and check scope readiness subjects and tools
-    dir: experiments/exec-reliability
-    cmds:
-      - uv run --locked python -m ruff format peer.py test_controller.py evidence/scope-readiness-k143/*.py
-      - uv run --locked python -m ruff check peer.py test_controller.py evidence/scope-readiness-k143/*.py
-      - uv run --locked python -m pyright peer.py evidence/scope-readiness-k143/prepare.py evidence/scope-readiness-k143/preserve.py evidence/scope-readiness-k143/run_condition.py
-
-  diagnostic:caller-fix-prepare:
-    desc: Freeze k145 cleanup inputs in a new OUT directory
-    dir: experiments/exec-reliability
-    cmds:
-      - uv run --locked python evidence/caller-cleanup-k145/prepare.py {{.INPUTS | shellQuote}} {{.OUT | shellQuote}} {{if .MUTANT}}--mutant {{.MUTANT | shellQuote}}{{end}}
-
-  diagnostic:caller-fix-check:
-    desc: Retain k145 controls, full suite or static checks in a new OUT directory
-    dir: experiments/exec-reliability
-    cmds:
-      - uv run --locked --isolated --python 3.12 python evidence/caller-cleanup-k145/run_condition.py {{.INPUTS | shellQuote}} {{.OUT | shellQuote}} {{.MODE | default "controls" | shellQuote}}
-
-  diagnostic:caller-fix-preserve:
-    desc: Verify earlier evidence, allowing only the named k140 report correction
-    dir: experiments/exec-reliability
-    cmds:
-      - uv run --locked python evidence/caller-cleanup-k145/preserve.py {{.MODE | shellQuote}}
-
-  diagnostic:caller-fix-tools:
-    desc: Format or check k145 tools and regression controls
-    dir: experiments/exec-reliability
-    cmds:
-      - uv run --locked python -m ruff format {{.CLI_ARGS}} evidence/caller-cleanup-k145/*.py test_turns.py
-      - uv run --locked python -m ruff check evidence/caller-cleanup-k145/*.py worker_capture.py test_turns.py
-      - uv run --locked --isolated --python 3.12 python -m pytest -q evidence/caller-cleanup-k145/test_audit.py
-      - uv run --locked python -m pyright evidence/caller-cleanup-k145/prepare.py evidence/caller-cleanup-k145/preserve.py evidence/caller-cleanup-k145/run_condition.py
-
-  diagnostic:caller-prepare:
-    desc: Freeze caller scheduling subjects
-    dir: experiments/exec-reliability
-    requires:
-      vars: [INPUTS, OUT]
-    cmds:
-      - uv run --locked python evidence/caller-scheduling-k140/prepare.py '{{.INPUTS}}' '{{.OUT}}' {{if .MUTANT}}--mutant '{{.MUTANT}}'{{end}}
-
-  diagnostic:caller-check:
-    desc: Retain bounded frozen caller scheduling controls and checks
-    dir: experiments/exec-reliability
-    requires:
-      vars: [INPUTS, OUT, MODE]
-    cmds:
-      - uv run --locked --isolated --python 3.12 python evidence/caller-scheduling-k140/run_condition.py '{{.INPUTS}}' '{{.OUT}}' '{{.MODE}}'
-
-  diagnostic:caller-preserve:
-    desc: Inventory all prior diagnostic evidence
-    dir: experiments/exec-reliability
-    requires:
-      vars: [MODE]
-    cmds:
-      - uv run --locked python evidence/caller-scheduling-k140/preserve.py '{{.MODE}}'
-
-  diagnostic:caller-tools:
-    desc: Format and check caller scheduling tools
-    dir: experiments/exec-reliability
-    cmds:
-      - uv run --locked python -m ruff format evidence/caller-scheduling-k140/*.py
-      - uv run --locked python -m ruff check evidence/caller-scheduling-k140/*.py
-      - uv run --locked python -m pytest -q evidence/caller-scheduling-k140/test_audit.py
-      - uv run --locked python -m pyright evidence/caller-scheduling-k140/prepare.py evidence/caller-scheduling-k140/preserve.py evidence/caller-scheduling-k140/run_condition.py
-
-  diagnostic:expired-request-verify:
-    dir: experiments/exec-reliability
-    cmds:
-      - uv run --locked python evidence/expired-request-controls-k137/verify.py '{{.OUT | default "comparison.json"}}'
-  diagnostic:expired-request-tools:
-    desc: Format and check expired request evidence tools
-    dir: experiments/exec-reliability
-    cmds:
-      - uv run --locked python -m ruff format evidence/expired-request-controls-k137/*.py
-      - uv run --locked python -m ruff check evidence/expired-request-controls-k137/*.py
-      - uv run --locked python -m pyright evidence/expired-request-controls-k137/*.py
-
-  diagnostic:expired-review-prepare:
-    desc: Freeze expired request controls and named ownership regressions
-    dir: experiments/exec-reliability
-    requires:
-      vars: [INPUTS, OUT]
-    cmds:
-      - uv run --locked python evidence/expired-request-review-k142/prepare.py '{{.INPUTS}}' '{{.OUT}}' {{if .MUTANT}}--mutant '{{.MUTANT}}'{{end}}
-
-  diagnostic:expired-review-check:
-    desc: Retain bounded frozen expired request controls, suites and statics
-    dir: experiments/exec-reliability
-    requires:
-      vars: [INPUTS, OUT, MODE]
-    cmds:
-      - uv run --locked {{if .PYTHON}}--isolated --python '{{.PYTHON}}'{{end}} python evidence/expired-request-review-k142/run_condition.py '{{.INPUTS}}' '{{.OUT}}' '{{.MODE}}'
-
-  diagnostic:expired-review-preserve:
-    desc: Inventory prior evidence around expired request controls
-    dir: experiments/exec-reliability
-    requires:
-      vars: [MODE]
-    cmds:
-      - uv run --locked python evidence/expired-request-review-k142/preserve.py '{{.MODE}}'
-
-  diagnostic:expired-review-audit-controls:
-    desc: Check missing and invalid expired request audit journals
-    dir: experiments/exec-reliability
-    cmds:
-      - uv run --locked python -m pytest -q evidence/expired-request-review-k142/test_audit.py
-
-  diagnostic:expired-review-verify:
-    desc: Verify retained expired request results and artifact digests; fresh OUT
-    dir: experiments/exec-reliability
-    requires:
-      vars: [OUT]
-    cmds:
-      - uv run --locked python evidence/expired-request-review-k142/verify.py '{{.OUT}}'
-
-  diagnostic:expired-request-prepare:
-    desc: Freeze expired request controls and named ownership regressions
-    dir: experiments/exec-reliability
-    requires:
-      vars: [INPUTS, OUT]
-    cmds:
-      - uv run --locked python evidence/expired-request-controls-k137/prepare.py '{{.INPUTS}}' '{{.OUT}}' {{if .MUTANT}}--mutant '{{.MUTANT}}'{{end}}
-
-  diagnostic:expired-request-check:
-    desc: Retain bounded frozen expired request controls, suites and statics
-    dir: experiments/exec-reliability
-    requires:
-      vars: [INPUTS, OUT, MODE]
-    cmds:
-      - uv run --locked {{if .PYTHON}}--isolated --python '{{.PYTHON}}'{{end}} python evidence/expired-request-controls-k137/run_condition.py '{{.INPUTS}}' '{{.OUT}}' '{{.MODE}}'
-
-  diagnostic:expired-request-preserve:
-    desc: Inventory prior evidence around expired request controls
-    dir: experiments/exec-reliability
-    requires:
-      vars: [MODE]
-    cmds:
-      - uv run --locked python evidence/expired-request-controls-k137/preserve.py '{{.MODE}}'
-
-  diagnostic:startup-frames-probe:
-    desc: Retain the interpreter decoder depth probe
-    dir: experiments/exec-reliability
-    requires:
-      vars: [OUT]
-    cmds:
-      - /bin/sh -C -c 'exec uv run --locked python evidence/startup-frame-controls-k139/probe_decoder.py > "$1"' sh '{{.OUT}}'
-
-  diagnostic:startup-frames-prepare:
-    desc: Freeze startup readiness inputs with optional parent source overrides
-    dir: experiments/exec-reliability
-    requires:
-      vars: [INPUTS, OUT]
-    cmds:
-      - uv run --locked python evidence/startup-frame-controls-k139/prepare.py '{{.INPUTS}}' '{{.OUT}}' {{if .MUTANT}}--mutant '{{.MUTANT}}'{{end}} {{if .WORKER_SOURCE}}--worker-source '{{.WORKER_SOURCE}}'{{end}} {{if .TURNS_SOURCE}}--turns-source '{{.TURNS_SOURCE}}'{{end}} {{if .TESTS_SOURCE}}--tests-source '{{.TESTS_SOURCE}}'{{end}}
-
-  diagnostic:startup-frames-check:
-    desc: Retain bounded startup readiness controls, suites and statics
-    dir: experiments/exec-reliability
-    requires:
-      vars: [INPUTS, OUT, MODE]
-    cmds:
-      - uv run --locked python evidence/startup-frame-controls-k139/run_condition.py '{{.INPUTS}}' '{{.OUT}}' '{{.MODE}}' --select '{{.SELECT | default ""}}'
-
-  diagnostic:startup-frames-preserve:
-    desc: Inventory prior evidence around startup readiness work
-    dir: experiments/exec-reliability
-    requires:
-      vars: [MODE]
-    cmds:
-      - uv run --locked python evidence/startup-frame-controls-k139/preserve.py '{{.MODE}}'
-
-  diagnostic:startup-frames-tools:
-    desc: Format, lint and typecheck startup readiness evidence tools
-    dir: experiments/exec-reliability
-    cmds:
-      - uv run --locked python -m ruff format {{.CLI_ARGS}} evidence/startup-frame-controls-k139/*.py
-      - uv run --locked python -m ruff check evidence/startup-frame-controls-k139/*.py
-      - uv run --locked python -m pyright evidence/startup-frame-controls-k139/*.py
-
-  diagnostic:startup-frames-audit:
-    desc: Verify retained startup readiness evidence and per-case comparisons
-    dir: experiments/exec-reliability
-    cmds:
-      - uv run --locked python evidence/startup-frame-controls-k139/audit.py
-
-  diagnostic:startup-turns-prepare:
-    desc: Freeze startup readiness inputs with optional parent source overrides
-    dir: experiments/exec-reliability
-    requires:
-      vars: [INPUTS, OUT]
-    cmds:
-      - uv run --locked python evidence/startup-turns-k134/prepare.py '{{.INPUTS}}' '{{.OUT}}' {{if .MUTANT}}--mutant '{{.MUTANT}}'{{end}} {{if .WORKER_SOURCE}}--worker-source '{{.WORKER_SOURCE}}'{{end}} {{if .TURNS_SOURCE}}--turns-source '{{.TURNS_SOURCE}}'{{end}} {{if .TESTS_SOURCE}}--tests-source '{{.TESTS_SOURCE}}'{{end}}
-
-  diagnostic:startup-turns-check:
-    desc: Retain bounded startup readiness controls, suites and statics
-    dir: experiments/exec-reliability
-    requires:
-      vars: [INPUTS, OUT, MODE]
-    cmds:
-      - uv run --locked python evidence/startup-turns-k134/run_condition.py '{{.INPUTS}}' '{{.OUT}}' '{{.MODE}}' --select '{{.SELECT | default ""}}'
-
-  diagnostic:startup-turns-preserve:
-    desc: Inventory prior evidence around startup readiness work
-    dir: experiments/exec-reliability
-    requires:
-      vars: [MODE]
-    cmds:
-      - uv run --locked python evidence/startup-turns-k134/preserve.py '{{.MODE}}'
-
-  diagnostic:startup-turns-tools:
-    desc: Format, lint and typecheck startup readiness evidence tools
-    dir: experiments/exec-reliability
-    cmds:
-      - uv run --locked python -m ruff format {{.CLI_ARGS}} evidence/startup-turns-k134/*.py
-      - uv run --locked python -m ruff check evidence/startup-turns-k134/*.py
-      - uv run --locked python -m pyright evidence/startup-turns-k134/*.py
-
-  diagnostic:startup-turns-audit:
-    desc: Verify retained startup readiness evidence and per-case comparisons
-    dir: experiments/exec-reliability
-    cmds:
-      - uv run --locked python evidence/startup-turns-k134/audit.py
-
-  diagnostic:readiness-review-prepare:
-    desc: Freeze pipe readiness inputs with optional parent source overrides
-    dir: experiments/exec-reliability
-    requires:
-      vars: [INPUTS, OUT]
-    cmds:
-      - uv run --locked python evidence/readiness-review-k136/prepare.py '{{.INPUTS}}' '{{.OUT}}' {{if .MUTANT}}--mutant '{{.MUTANT}}'{{end}} {{if .WORKER_SOURCE}}--worker-source '{{.WORKER_SOURCE}}'{{end}} {{if .TURNS_SOURCE}}--turns-source '{{.TURNS_SOURCE}}'{{end}} {{if .TESTS_SOURCE}}--tests-source '{{.TESTS_SOURCE}}'{{end}}
-
-  diagnostic:readiness-review-check:
-    desc: Retain bounded pipe readiness controls, suites and statics
-    dir: experiments/exec-reliability
-    requires:
-      vars: [INPUTS, OUT, MODE]
-    cmds:
-      - uv run --locked python evidence/readiness-review-k136/run_condition.py '{{.INPUTS}}' '{{.OUT}}' '{{.MODE}}' --select '{{.SELECT | default ""}}'
-
-  diagnostic:readiness-review-preserve:
-    desc: Inventory prior evidence around pipe readiness work
-    dir: experiments/exec-reliability
-    requires:
-      vars: [MODE]
-    cmds:
-      - uv run --locked python evidence/readiness-review-k136/preserve.py '{{.MODE}}'
-
-  diagnostic:readiness-review-tools:
-    desc: Format, lint and typecheck pipe readiness evidence tools
-    dir: experiments/exec-reliability
-    cmds:
-      - uv run --locked python -m ruff format {{.CLI_ARGS}} evidence/readiness-review-k136/*.py
-      - uv run --locked python -m ruff check evidence/readiness-review-k136/*.py
-      - uv run --locked python -m pyright evidence/readiness-review-k136/*.py
-
-  diagnostic:readiness-review-audit:
-    desc: Verify retained pipe readiness evidence and per-case comparisons
-    dir: experiments/exec-reliability
-    cmds:
-      - uv run --locked python evidence/readiness-review-k136/audit.py
-
-  diagnostic:readiness-wakes-prepare:
-    desc: Freeze pipe readiness inputs with optional parent source overrides
-    dir: experiments/exec-reliability
-    requires:
-      vars: [INPUTS, OUT]
-    cmds:
-      - uv run --locked python evidence/readiness-wakes-k132/prepare.py '{{.INPUTS}}' '{{.OUT}}' {{if .MUTANT}}--mutant '{{.MUTANT}}'{{end}} {{if .WORKER_SOURCE}}--worker-source '{{.WORKER_SOURCE}}'{{end}} {{if .TURNS_SOURCE}}--turns-source '{{.TURNS_SOURCE}}'{{end}} {{if .TESTS_SOURCE}}--tests-source '{{.TESTS_SOURCE}}'{{end}}
-
-  diagnostic:readiness-wakes-check:
-    desc: Retain bounded pipe readiness controls, suites and statics
-    dir: experiments/exec-reliability
-    requires:
-      vars: [INPUTS, OUT, MODE]
-    cmds:
-      - uv run --locked python evidence/readiness-wakes-k132/run_condition.py '{{.INPUTS}}' '{{.OUT}}' '{{.MODE}}' --select '{{.SELECT | default ""}}'
-
-  diagnostic:readiness-wakes-preserve:
-    desc: Inventory prior evidence around pipe readiness work
-    dir: experiments/exec-reliability
-    requires:
-      vars: [MODE]
-    cmds:
-      - uv run --locked python evidence/readiness-wakes-k132/preserve.py '{{.MODE}}'
-
-  diagnostic:readiness-wakes-tools:
-    desc: Format, lint and typecheck pipe readiness evidence tools
-    dir: experiments/exec-reliability
-    cmds:
-      - uv run --locked python -m ruff format {{.CLI_ARGS}} evidence/readiness-wakes-k132/*.py
-      - uv run --locked python -m ruff check evidence/readiness-wakes-k132/*.py
-      - uv run --locked python -m pyright evidence/readiness-wakes-k132/*.py
-
-  diagnostic:readiness-wakes-audit:
-    desc: Verify retained pipe readiness evidence and per-case comparisons
-    dir: experiments/exec-reliability
-    cmds:
-      - uv run --locked python evidence/readiness-wakes-k132/audit.py
-
   diagnostic:test:
     desc: Run local diagnostic tests, with optional pytest arguments after --
-    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
+    dir: '{{.ROOT_DIR}}/tests/exec-reliability'
     cmds:
       - uv run --locked python -m pytest {{.CLI_ARGS}}
 
   diagnostic:format:
     desc: Format the local diagnostic Python sources
-    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
+    dir: '{{.ROOT_DIR}}/tests/exec-reliability'
     cmds:
       - uv run --locked python -m ruff format *.py {{.CLI_ARGS}}
 
@@ -1006,7 +412,7 @@ tasks:
       - sh: test -n "{{.OUT | default ""}}"
         msg: 'set OUT=<a new evidence directory>; earlier conditions must not be reused'
     cmds:
-      - uv run --project experiments/exec-reliability --locked python experiments/exec-reliability/self_check.py {{.OUT | default "" | shellQuote}}
+      - uv run --project tests/exec-reliability --locked python tests/exec-reliability/self_check.py {{.OUT | default "" | shellQuote}}
 
   diagnostic:review-controls:
     desc: Retain only the review regression controls, including their expected failure against the old controller. Requires OUT=<new evidence directory>
@@ -1015,7 +421,7 @@ tasks:
       - sh: test -n "{{.OUT | default ""}}"
         msg: 'set OUT=<a new evidence directory>'
     cmds:
-      - uv run --project experiments/exec-reliability --locked python experiments/exec-reliability/self_check.py {{.OUT | default "" | shellQuote}} --controls-only
+      - uv run --project tests/exec-reliability --locked python tests/exec-reliability/self_check.py {{.OUT | default "" | shellQuote}} --controls-only
 
   diagnostic:acceptance-trial:
     desc: 'Run the frozen k223 acceptance trial: five fresh macOS clones, then five fresh Linux clones, one at a time, through the private Host CLI and app that the k224 freeze manifest names. The trial stops after the first failed clone. Each clone keeps its inventory, raw receipts, downloads and check. OUT/trial.json gives the count out of 10. Requires OUT=<new evidence directory> and MANIFEST=<k224 freeze manifest>'
@@ -1023,7 +429,7 @@ tasks:
     requires:
       vars: [OUT, MANIFEST]
     cmds:
-      - uv run --project experiments/exec-reliability --locked python experiments/exec-reliability/acceptance_k223.py {{.OUT | shellQuote}} {{.MANIFEST | shellQuote}}
+      - uv run --project tests/exec-reliability --locked python tests/exec-reliability/acceptance_k223.py {{.OUT | shellQuote}} {{.MANIFEST | shellQuote}}
 
   diagnostic:acceptance-check:
     desc: 'Judge one retained k223 clone directory CLONE again: the record validity rules, every root and spec bound, the exact bytes and the four corruption controls. Exit 0 only when the clone passes'
@@ -1031,7 +437,7 @@ tasks:
     requires:
       vars: [CLONE]
     cmds:
-      - uv run --project experiments/exec-reliability --locked python experiments/exec-reliability/acceptance_k223_check.py {{.CLONE | shellQuote}}
+      - uv run --project tests/exec-reliability --locked python tests/exec-reliability/acceptance_k223_check.py {{.CLONE | shellQuote}}
 
   diagnostic:acceptance-images:
     desc: 'Record the local Tart images into the new file OUT: the tart list, and the size, inode, times and SHA-256 of config.json and nvram.bin of each image. HASH="<image> ..." also hashes the full disk of each named image (about 25 s for 50 GB). Reads only. Requires OUT=<new file>'
@@ -1039,7 +445,7 @@ tasks:
     requires:
       vars: [OUT]
     cmds:
-      - set --; for name in {{.HASH | default ""}}; do set -- "$@" --hash "$name"; done; uv run --project experiments/exec-reliability --locked python experiments/exec-reliability/image_audit_k224.py snapshot {{.OUT | shellQuote}} "$@"
+      - set --; for name in {{.HASH | default ""}}; do set -- "$@" --hash "$name"; done; uv run --project tests/exec-reliability --locked python tests/exec-reliability/image_audit_k224.py snapshot {{.OUT | shellQuote}} "$@"
 
   diagnostic:acceptance-images-compare:
     desc: 'Judge each image that both records hashed: each file present with its size, digest and time in both records, unchanged (equal sizes and digests) and not booted (stopped in both, equal disk and NVRAM modification times). Exit 0 only when each image passes. Requires BEFORE=<record> and AFTER=<record>'
@@ -1047,7 +453,7 @@ tasks:
     requires:
       vars: [BEFORE, AFTER]
     cmds:
-      - uv run --project experiments/exec-reliability --locked python experiments/exec-reliability/image_audit_k224.py compare {{.BEFORE | shellQuote}} {{.AFTER | shellQuote}}
+      - uv run --project tests/exec-reliability --locked python tests/exec-reliability/image_audit_k224.py compare {{.BEFORE | shellQuote}} {{.AFTER | shellQuote}}
 
   diagnostic:acceptance-export:
     desc: 'Export each golden of GOLDENS="<golden> ..." once with tart export into the new directory DEST, each within the 1800 s export bound. OUT receives the controller evidence and exports.json with the size and SHA-256 of each archive. Requires OUT, DEST and GOLDENS'
@@ -1055,7 +461,7 @@ tasks:
     requires:
       vars: [OUT, DEST, GOLDENS]
     cmds:
-      - uv run --project experiments/exec-reliability --locked python experiments/exec-reliability/acceptance_k224.py export {{.OUT | shellQuote}} {{.DEST | shellQuote}} {{.GOLDENS}}
+      - uv run --project tests/exec-reliability --locked python tests/exec-reliability/acceptance_k224.py export {{.OUT | shellQuote}} {{.DEST | shellQuote}} {{.GOLDENS}}
 
   diagnostic:acceptance-manifest:
     desc: 'Write the freeze manifest OUT of the k223 trial from the isolated build workspace BUILD, the image record IMAGES and the exports.json EXPORTS. Refuses when the answering app is not the private app of BUILD or when BUILD has changes. Requires OUT, BUILD, IMAGES and EXPORTS'
@@ -1063,7 +469,7 @@ tasks:
     requires:
       vars: [OUT, BUILD, IMAGES, EXPORTS]
     cmds:
-      - uv run --project experiments/exec-reliability --locked python experiments/exec-reliability/acceptance_k224.py manifest {{.OUT | shellQuote}} {{.BUILD | shellQuote}} {{.IMAGES | shellQuote}} {{.EXPORTS | shellQuote}}
+      - uv run --project tests/exec-reliability --locked python tests/exec-reliability/acceptance_k224.py manifest {{.OUT | shellQuote}} {{.BUILD | shellQuote}} {{.IMAGES | shellQuote}} {{.EXPORTS | shellQuote}}
 
   diagnostic:acceptance-refreeze:
     desc: 'Write the new freeze manifest OUT from the earlier manifest MANIFEST after a change to the trial files. Needs no answering app. Refuses unless each earlier build, Tart and golden-file pin and each golden disk still has its earlier digest (about 21 s for each 50 GB disk). Pins the interpreter, the trial files and the app configuration file again, and names each changed pin. MANIFEST stays unchanged. Requires OUT=<new file> and MANIFEST=<earlier manifest>'
@@ -1071,7 +477,7 @@ tasks:
     requires:
       vars: [OUT, MANIFEST]
     cmds:
-      - uv run --project experiments/exec-reliability --locked python experiments/exec-reliability/acceptance_k224.py refreeze {{.OUT | shellQuote}} {{.MANIFEST | shellQuote}}
+      - uv run --project tests/exec-reliability --locked python tests/exec-reliability/acceptance_k224.py refreeze {{.OUT | shellQuote}} {{.MANIFEST | shellQuote}}
 
   diagnostic:acceptance-prepare:
     desc: 'Run one preparation clone of the new golden of OS (macos or linux) that MANIFEST names, through its private Host CLI and app, into the new directory OUT. The clone runs the k223 preparation cases with the k223 argv; it is not a trial clone. The k223 checker judges each case and runs the four corruption controls on the real evidence. Requires OUT, MANIFEST and OS'
@@ -1079,7 +485,7 @@ tasks:
     requires:
       vars: [OUT, MANIFEST, OS]
     cmds:
-      - uv run --project experiments/exec-reliability --locked python experiments/exec-reliability/acceptance_k224.py prepare {{.OUT | shellQuote}} {{.MANIFEST | shellQuote}} {{.OS | shellQuote}}
+      - uv run --project tests/exec-reliability --locked python tests/exec-reliability/acceptance_k224.py prepare {{.OUT | shellQuote}} {{.MANIFEST | shellQuote}} {{.OS | shellQuote}}
 
   diagnostic:acceptance-prepare-check:
     desc: 'Judge one retained preparation directory DIR again: each case, the freeze, the recorded execution and the four corruption controls. Exit 0 only when it passes'
@@ -1087,7 +493,7 @@ tasks:
     requires:
       vars: [DIR]
     cmds:
-      - uv run --project experiments/exec-reliability --locked python experiments/exec-reliability/acceptance_k224.py check {{.DIR | shellQuote}}
+      - uv run --project tests/exec-reliability --locked python tests/exec-reliability/acceptance_k224.py check {{.DIR | shellQuote}}
 
   diagnostic:verify:
     desc: Compare one retained run directory with its result identity and stream pins. Requires RUN=<run directory> and OUT=<new verdict file>
@@ -1096,7 +502,7 @@ tasks:
       - sh: test -n "{{.RUN | default ""}}" && test -n "{{.OUT | default ""}}"
         msg: 'set RUN=<retained run directory> and OUT=<a new verdict file>'
     cmds:
-      - uv run --project experiments/exec-reliability --locked python experiments/exec-reliability/retention.py verify {{.RUN | default "" | shellQuote}} --out {{.OUT | default "" | shellQuote}}
+      - uv run --project tests/exec-reliability --locked python tests/exec-reliability/retention.py verify {{.RUN | default "" | shellQuote}} --out {{.OUT | default "" | shellQuote}}
 
   diagnostic:preflight:
     desc: Read-only installed tool help, public app status, VM/Tart inventories and build prerequisites; no boot, guest workload, installation or app quit. Requires OUT=<new evidence directory>
@@ -1105,160 +511,7 @@ tasks:
       - sh: test -n "{{.OUT}}"
         msg: 'set OUT=<a new evidence directory>'
     cmds:
-      - uv run --project experiments/exec-reliability --locked python experiments/exec-reliability/preflight.py {{.OUT | shellQuote}}
-
-  diagnostic:framing-check:
-    desc: Retain isolated framing controls against frozen INPUTS in a new OUT directory
-    dir: '{{.ROOT_DIR}}'
-    requires:
-      vars: [INPUTS, OUT]
-    cmds:
-      - uv run --project experiments/exec-reliability --locked python experiments/exec-reliability/evidence/result-framing-k80/run_condition.py {{.INPUTS | shellQuote}} {{.OUT | shellQuote}}
-
-  diagnostic:fork-boundary-check:
-    desc: Retain fork preparation controls against frozen INPUTS in a new OUT directory
-    dir: '{{.ROOT_DIR}}'
-    requires:
-      vars: [INPUTS, OUT]
-    cmds:
-      - uv run --project experiments/exec-reliability --locked python experiments/exec-reliability/evidence/fork-boundary-k78/run_condition.py {{.INPUTS | shellQuote}} {{.OUT | shellQuote}}
-
-  diagnostic:probe-interval-check:
-    desc: Retain query/probe interval controls against frozen INPUTS in a new OUT directory
-    dir: '{{.ROOT_DIR}}'
-    requires:
-      vars: [INPUTS, OUT]
-    cmds:
-      - uv run --project experiments/exec-reliability --locked python experiments/exec-reliability/evidence/probe-intervals-k81/run_condition.py {{.INPUTS | shellQuote}} {{.OUT | shellQuote}}
-
-  diagnostic:bootstrap-bounds-check:
-    desc: Run frozen bootstrap-bound controls; fresh OUT, MODE=full for full suite
-    dir: '{{.ROOT_DIR}}'
-    requires:
-      vars: [INPUTS, OUT]
-    cmds:
-      - uv run --project experiments/exec-reliability --locked python experiments/exec-reliability/evidence/bootstrap-bounds-k101/run_condition.py {{.INPUTS | shellQuote}} {{.OUT | shellQuote}} {{.MODE | default "controls" | shellQuote}}
-
-  diagnostic:bootstrap-bounds-prepare:
-    desc: Freeze bootstrap inputs; optional MUTANT restores one named defect
-    requires:
-      vars: [INPUTS, OUT]
-    cmds:
-      - uv run --project experiments/exec-reliability --locked python experiments/exec-reliability/evidence/bootstrap-bounds-k101/prepare.py {{.INPUTS | shellQuote}} {{.OUT | shellQuote}} {{if .MUTANT}}--mutant {{.MUTANT | shellQuote}}{{end}}
-
-  diagnostic:bootstrap-bounds-tools:
-    desc: Check the retained bootstrap-bound tooling
-    cmds:
-      - uv run --project experiments/exec-reliability --locked python -m ruff check experiments/exec-reliability/evidence/bootstrap-bounds-k101/run_condition.py experiments/exec-reliability/evidence/bootstrap-bounds-k101/prepare.py
-      - uv run --project experiments/exec-reliability --locked python -m ruff format --check experiments/exec-reliability/evidence/bootstrap-bounds-k101/run_condition.py experiments/exec-reliability/evidence/bootstrap-bounds-k101/prepare.py
-      - uv run --project experiments/exec-reliability --locked python -m pyright experiments/exec-reliability/evidence/bootstrap-bounds-k101/run_condition.py experiments/exec-reliability/evidence/bootstrap-bounds-k101/prepare.py
-
-  diagnostic:bootstrap-review-check:
-    desc: Run frozen bootstrap-bound controls; fresh OUT, MODE=full for full suite
-    dir: '{{.ROOT_DIR}}'
-    requires:
-      vars: [INPUTS, OUT]
-    cmds:
-      - uv run --project experiments/exec-reliability --locked python experiments/exec-reliability/evidence/bootstrap-bounds-k106/run_condition.py {{.INPUTS | shellQuote}} {{.OUT | shellQuote}} {{.MODE | default "controls" | shellQuote}}
-
-  diagnostic:bootstrap-review-prepare:
-    desc: Freeze bootstrap inputs; optional MUTANT restores one named defect
-    requires:
-      vars: [INPUTS, OUT]
-    cmds:
-      - uv run --project experiments/exec-reliability --locked python experiments/exec-reliability/evidence/bootstrap-bounds-k106/prepare.py {{.INPUTS | shellQuote}} {{.OUT | shellQuote}} {{if .MUTANT}}--mutant {{.MUTANT | shellQuote}}{{end}}
-
-  diagnostic:bootstrap-review-preserve:
-    desc: Retain before/after hashes of all prior evidence paths
-    requires:
-      vars: [PHASE]
-    cmds:
-      - uv run --project experiments/exec-reliability --locked python experiments/exec-reliability/evidence/bootstrap-bounds-k106/preserve.py {{.PHASE | shellQuote}}
-
-  diagnostic:bootstrap-review-batch:
-    desc: Run the declared k106 mutant matrix then frozen controls and full verification
-    cmds:
-      - uv run --project experiments/exec-reliability --locked python experiments/exec-reliability/evidence/bootstrap-bounds-k106/batch.py
-
-  diagnostic:bootstrap-review-tools:
-    desc: Check the retained bootstrap-bound tooling
-    cmds:
-      - uv run --project experiments/exec-reliability --locked python -m ruff check experiments/exec-reliability/evidence/bootstrap-bounds-k106/run_condition.py experiments/exec-reliability/evidence/bootstrap-bounds-k106/prepare.py experiments/exec-reliability/evidence/bootstrap-bounds-k106/preserve.py experiments/exec-reliability/evidence/bootstrap-bounds-k106/batch.py experiments/exec-reliability/evidence/bootstrap-bounds-k106/audit.py
-      - uv run --project experiments/exec-reliability --locked python -m ruff format --check experiments/exec-reliability/evidence/bootstrap-bounds-k106/run_condition.py experiments/exec-reliability/evidence/bootstrap-bounds-k106/prepare.py experiments/exec-reliability/evidence/bootstrap-bounds-k106/preserve.py experiments/exec-reliability/evidence/bootstrap-bounds-k106/batch.py experiments/exec-reliability/evidence/bootstrap-bounds-k106/audit.py
-      - uv run --project experiments/exec-reliability --locked python -m pyright experiments/exec-reliability/evidence/bootstrap-bounds-k106/run_condition.py experiments/exec-reliability/evidence/bootstrap-bounds-k106/prepare.py experiments/exec-reliability/evidence/bootstrap-bounds-k106/preserve.py experiments/exec-reliability/evidence/bootstrap-bounds-k106/batch.py experiments/exec-reliability/evidence/bootstrap-bounds-k106/audit.py
-
-  diagnostic:bootstrap-review-audit:
-    desc: Verify retained bootstrap mutations, digests and owned process receipts
-    cmds:
-      - uv run --project experiments/exec-reliability --locked python experiments/exec-reliability/evidence/bootstrap-bounds-k106/audit.py
-
-  diagnostic:worker-deadline-check:
-    desc: Retain worker shutdown deadline controls against frozen INPUTS in a new OUT directory
-    dir: '{{.ROOT_DIR}}'
-    requires:
-      vars: [INPUTS, OUT]
-    cmds:
-      - uv run --project experiments/exec-reliability --locked python experiments/exec-reliability/evidence/worker-deadline-k83/run_condition.py {{.INPUTS | shellQuote}} {{.OUT | shellQuote}}
-
-  diagnostic:termination-cutoff-check:
-    desc: Run frozen termination cutoff controls; fresh OUT, MODE=full for full suite
-    dir: '{{.ROOT_DIR}}'
-    requires:
-      vars: [INPUTS, OUT]
-    cmds:
-      - uv run --project experiments/exec-reliability --locked python experiments/exec-reliability/evidence/termination-cutoff-k90/run_condition.py {{.INPUTS | shellQuote}} {{.OUT | shellQuote}} {{.MODE | default "controls" | shellQuote}}
-
-  diagnostic:workload-wait-check:
-    desc: Run frozen workload-wait controls; fresh OUT, MODE=full for full suite
-    dir: '{{.ROOT_DIR}}'
-    requires:
-      vars: [INPUTS, OUT]
-    cmds:
-      - uv run --project experiments/exec-reliability --locked python experiments/exec-reliability/evidence/workload-wait-k91/run_condition.py {{.INPUTS | shellQuote}} {{.OUT | shellQuote}} {{.MODE | default "controls" | shellQuote}}
-
-  diagnostic:workload-wait-tools:
-    desc: Check the retained workload-wait runner
-    cmds:
-      - uv run --project experiments/exec-reliability --locked python -m ruff check experiments/exec-reliability/evidence/workload-wait-k91/run_condition.py
-      - uv run --project experiments/exec-reliability --locked python -m ruff format --check experiments/exec-reliability/evidence/workload-wait-k91/run_condition.py
-      - uv run --project experiments/exec-reliability --locked python -m pyright experiments/exec-reliability/evidence/workload-wait-k91/run_condition.py
-
-  diagnostic:leader-reap-check:
-    desc: Run frozen first-reap controls; fresh OUT, MODE=full for full suite
-    dir: '{{.ROOT_DIR}}'
-    requires:
-      vars: [INPUTS, OUT]
-    cmds:
-      - uv run --project experiments/exec-reliability --locked python experiments/exec-reliability/evidence/leader-reap-k93/run_condition.py {{.INPUTS | shellQuote}} {{.OUT | shellQuote}} {{.MODE | default "controls" | shellQuote}}
-
-  diagnostic:leader-reap-tools:
-    desc: Check the retained first-reap runner and evidence auditor
-    cmds:
-      - uv run --project experiments/exec-reliability --locked python -m ruff check experiments/exec-reliability/evidence/leader-reap-k93/run_condition.py experiments/exec-reliability/evidence/leader-reap-k93/audit.py
-      - uv run --project experiments/exec-reliability --locked python -m ruff format --check experiments/exec-reliability/evidence/leader-reap-k93/run_condition.py experiments/exec-reliability/evidence/leader-reap-k93/audit.py
-      - uv run --project experiments/exec-reliability --locked python -m pyright experiments/exec-reliability/evidence/leader-reap-k93/run_condition.py experiments/exec-reliability/evidence/leader-reap-k93/audit.py
-
-  diagnostic:leader-reap-audit-controls:
-    desc: Reject corrupted inventories, archives, receipts and case identities with the final auditor
-    requires:
-      vars: [OUT]
-    cmds:
-      - uv run --project experiments/exec-reliability --locked python experiments/exec-reliability/evidence/leader-reap-k93/run_condition.py experiments/exec-reliability {{.OUT | shellQuote}} audit-controls
-
-  diagnostic:leader-reap-audit:
-    desc: Audit retained first-reap outcomes and historical evidence hashes
-    requires:
-      vars: [OUT]
-    cmds:
-      - uv run --project experiments/exec-reliability --locked python experiments/exec-reliability/evidence/leader-reap-k93/audit.py {{.OUT | shellQuote}}
-
-  diagnostic:worker-evidence-check:
-    desc: Run frozen worker deadline controls or a timing suite; fresh OUT, MODE=full for suite
-    dir: '{{.ROOT_DIR}}'
-    requires:
-      vars: [INPUTS, OUT]
-    cmds:
-      - uv run --project experiments/exec-reliability --locked python experiments/exec-reliability/evidence/worker-deadline-k87/run_condition.py {{.INPUTS | shellQuote}} {{.OUT | shellQuote}} {{.MODE | default "controls" | shellQuote}}
+      - uv run --project tests/exec-reliability --locked python tests/exec-reliability/preflight.py {{.OUT | shellQuote}}
 
   diagnostic:resource-audit:
     desc: Validate and run an explicitly frozen local resource auditor. Requires AUDITOR=<script>
@@ -1267,9 +520,9 @@ tasks:
       - sh: test -f {{.AUDITOR | default "" | shellQuote}}
         msg: 'set AUDITOR=<the frozen audit script>'
     cmds:
-      - uv run --project experiments/exec-reliability --locked python -m ruff check {{.AUDITOR | shellQuote}}
-      - uv run --project experiments/exec-reliability --locked python -m ruff format --check {{.AUDITOR | shellQuote}}
-      - uv run --project experiments/exec-reliability --locked python {{.AUDITOR | shellQuote}}
+      - uv run --project tests/exec-reliability --locked python -m ruff check {{.AUDITOR | shellQuote}}
+      - uv run --project tests/exec-reliability --locked python -m ruff format --check {{.AUDITOR | shellQuote}}
+      - uv run --project tests/exec-reliability --locked python {{.AUDITOR | shellQuote}}
 
   default:
     desc: List the available tasks
@@ -1463,7 +716,7 @@ tasks:
     dir: '{{.ROOT_DIR}}/agents/linux'
     vars:
       # python:3.12-slim on linux/arm64, the image of the k5 matrix
-      # (experiments/exec-reliability/linux_k5.py). The daemon knows it only by digest.
+      # (tests/exec-reliability/linux_k5.py). The daemon knows it only by digest.
       LINUX_TEST_IMAGE: python@sha256:dddfd7e07f9d15aeeca61529320492139d21cac7f0070c00609243e51e4e0016
     preconditions:
       - sh: docker image inspect {{.LINUX_TEST_IMAGE}} >/dev/null 2>&1
@@ -1824,621 +1077,14 @@ tasks:
     cmds:
       - scripts/release-publish.sh {{.TAG}}
 
-  diagnostic:persistent-worker-check:
-    desc: Retain frozen persistent worker lifecycle controls or the full suite
-    dir: experiments/exec-reliability
-    requires:
-      vars: [INPUTS, OUT, MODE]
-    cmds:
-      - uv run --locked python evidence/persistent-worker-k94/run_condition.py '{{.INPUTS}}' '{{.OUT}}' '{{.MODE}}'
-
-  diagnostic:request-identity-check:
-    desc: Retain frozen request identity controls or the full diagnostic suite
-    dir: experiments/exec-reliability
-    requires:
-      vars: [INPUTS, OUT, MODE]
-    cmds:
-      - uv run --locked python evidence/request-identity-k96/run_condition.py '{{.INPUTS}}' '{{.OUT}}' '{{.MODE}}'
-
-  diagnostic:worker-close-check:
-    desc: Retain frozen worker close controls or the full diagnostic suite
-    dir: experiments/exec-reliability
-    requires:
-      vars: [INPUTS, OUT, MODE]
-    cmds:
-      - uv run --locked python evidence/worker-close-k98/run_condition.py '{{.INPUTS}}' '{{.OUT}}' '{{.MODE}}'
-
-
-  diagnostic:worker-close-review-check:
-    desc: 'Freeze k103 worker-close review controls or full checks; INPUTS=<source snapshot> OUT=<new evidence directory> MODE=controls|full SELECT=<optional pytest expression>'
-    dir: experiments/exec-reliability
-    requires:
-      vars: [INPUTS, OUT, MODE]
-    cmds:
-      - uv run --locked python evidence/worker-close-k103/run_condition.py '{{.INPUTS}}' '{{.OUT}}' '{{.MODE}}' --select '{{.SELECT | default ""}}'
-
-  diagnostic:worker-phases-prepare:
-    desc: Freeze worker shutdown phase sources, optionally with MUTANT=<named regression>
-    dir: experiments/exec-reliability
-    requires:
-      vars: [INPUTS, OUT]
-    cmds:
-      - uv run --locked python evidence/worker-phases-k104/prepare.py '{{.INPUTS}}' '{{.OUT}}' {{if .MUTANT}}--mutant '{{.MUTANT}}'{{end}}
-
-  diagnostic:worker-phases-check:
-    desc: Retain frozen worker shutdown controls or full tests and static checks
-    dir: experiments/exec-reliability
-    requires:
-      vars: [INPUTS, OUT, MODE]
-    cmds:
-      - uv run --locked python evidence/worker-phases-k104/run_condition.py '{{.INPUTS}}' '{{.OUT}}' '{{.MODE}}' --select '{{.SELECT | default ""}}'
-
-  diagnostic:worker-phases-preserve:
-    desc: Inventory prior evidence before or after worker shutdown phase work
-    dir: experiments/exec-reliability
-    requires:
-      vars: [MODE]
-    cmds:
-      - uv run --locked python evidence/worker-phases-k104/preserve.py '{{.MODE}}'
-
-  diagnostic:worker-phases-tools:
-    desc: Check worker shutdown phase evidence tooling
-    dir: experiments/exec-reliability
-    cmds:
-      - uv run --locked python -m ruff format {{.CLI_ARGS}} evidence/worker-phases-k104/*.py
-      - uv run --locked python -m ruff check evidence/worker-phases-k104/*.py
-      - uv run --locked python -m pyright evidence/worker-phases-k104/*.py
-
-  diagnostic:shutdown-review-prepare:
-    desc: Freeze worker shutdown phase sources, optionally with MUTANT=<named regression>
-    dir: experiments/exec-reliability
-    requires:
-      vars: [INPUTS, OUT]
-    cmds:
-      - uv run --locked python evidence/shutdown-phases-k109/prepare.py '{{.INPUTS}}' '{{.OUT}}' {{if .MUTANT}}--mutant '{{.MUTANT}}'{{end}}
-
-  diagnostic:shutdown-review-check:
-    desc: Retain frozen worker shutdown controls or full tests and static checks
-    dir: experiments/exec-reliability
-    requires:
-      vars: [INPUTS, OUT, MODE]
-    cmds:
-      - uv run --locked python evidence/shutdown-phases-k109/run_condition.py '{{.INPUTS}}' '{{.OUT}}' '{{.MODE}}' --select '{{.SELECT | default ""}}'
-
-  diagnostic:shutdown-review-preserve:
-    desc: Inventory prior evidence before or after worker shutdown phase work
-    dir: experiments/exec-reliability
-    requires:
-      vars: [MODE]
-    cmds:
-      - uv run --locked python evidence/shutdown-phases-k109/preserve.py '{{.MODE}}'
-
-  diagnostic:shutdown-review-tools:
-    desc: Check worker shutdown phase evidence tooling
-    dir: experiments/exec-reliability
-    cmds:
-      - uv run --locked python -m ruff format {{.CLI_ARGS}} evidence/shutdown-phases-k109/*.py
-      - uv run --locked python -m ruff check evidence/shutdown-phases-k109/*.py
-      - uv run --locked python -m pyright evidence/shutdown-phases-k109/*.py
-
-  diagnostic:shutdown-review-format:
-    desc: Format the shutdown review implementation and controls
-    dir: experiments/exec-reliability
-    cmds:
-      - uv run --locked python -m ruff format worker_capture.py test_shutdown.py evidence/shutdown-phases-k109/*.py
-
-  diagnostic:worker-first-reap-prepare:
-    desc: Freeze worker first-reap sources, optionally with MUTANT=<named regression>
-    dir: experiments/exec-reliability
-    requires:
-      vars: [INPUTS, OUT]
-    cmds:
-      - uv run --locked python evidence/worker-first-reap-k107/prepare.py '{{.INPUTS}}' '{{.OUT}}' {{if .MUTANT}}--mutant '{{.MUTANT}}'{{end}}
-
-  diagnostic:worker-first-reap-check:
-    desc: Retain frozen worker shutdown controls or full tests and static checks
-    dir: experiments/exec-reliability
-    requires:
-      vars: [INPUTS, OUT, MODE]
-    cmds:
-      - uv run --locked python evidence/worker-first-reap-k107/run_condition.py '{{.INPUTS}}' '{{.OUT}}' '{{.MODE}}' --select '{{.SELECT | default ""}}'
-
-  diagnostic:worker-first-reap-preserve:
-    desc: Inventory prior evidence before or after worker first-reap work
-    dir: experiments/exec-reliability
-    requires:
-      vars: [MODE]
-    cmds:
-      - uv run --locked python evidence/worker-first-reap-k107/preserve.py '{{.MODE}}'
-
-  diagnostic:worker-first-reap-tools:
-    desc: Check worker first-reap evidence tooling
-    dir: experiments/exec-reliability
-    cmds:
-      - uv run --locked python -m ruff format {{.CLI_ARGS}} evidence/worker-first-reap-k107/*.py
-      - uv run --locked python -m ruff check evidence/worker-first-reap-k107/*.py
-      - uv run --locked python -m pyright evidence/worker-first-reap-k107/*.py
-
-  diagnostic:worker-first-reap-format:
-    desc: Format the worker first-reap implementation and controls
-    dir: experiments/exec-reliability
-    cmds:
-      - uv run --locked python -m ruff format worker_capture.py test_shutdown.py evidence/worker-first-reap-k107/*.py
-
-  diagnostic:worker-reap-scope-prepare:
-    desc: Freeze worker reap-scope sources, optionally with MUTANT=<named regression>
-    dir: experiments/exec-reliability
-    requires:
-      vars: [INPUTS, OUT]
-    cmds:
-      - uv run --locked python evidence/worker-reap-scope-k112/prepare.py '{{.INPUTS}}' '{{.OUT}}' {{if .MUTANT}}--mutant '{{.MUTANT}}'{{end}}
-
-  diagnostic:worker-reap-scope-check:
-    desc: Retain frozen worker shutdown controls or full tests and static checks
-    dir: experiments/exec-reliability
-    requires:
-      vars: [INPUTS, OUT, MODE]
-    cmds:
-      - uv run --locked python evidence/worker-reap-scope-k112/run_condition.py '{{.INPUTS}}' '{{.OUT}}' '{{.MODE}}' --select '{{.SELECT | default ""}}'
-
-  diagnostic:worker-reap-scope-preserve:
-    desc: Inventory prior evidence before or after worker reap-scope work
-    dir: experiments/exec-reliability
-    requires:
-      vars: [MODE]
-    cmds:
-      - uv run --locked python evidence/worker-reap-scope-k112/preserve.py '{{.MODE}}'
-
-  diagnostic:worker-reap-scope-tools:
-    desc: Check worker reap-scope evidence tooling
-    dir: experiments/exec-reliability
-    cmds:
-      - uv run --locked python -m ruff format {{.CLI_ARGS}} evidence/worker-reap-scope-k112/*.py
-      - uv run --locked python -m ruff check evidence/worker-reap-scope-k112/*.py
-      - uv run --locked python -m pyright evidence/worker-reap-scope-k112/*.py
-
-  diagnostic:worker-reap-scope-format:
-    desc: Format the worker reap-scope implementation and controls
-    dir: experiments/exec-reliability
-    cmds:
-      - uv run --locked python -m ruff format worker_capture.py test_shutdown.py test_worker_capture.py evidence/worker-reap-scope-k112/*.py
-
-  diagnostic:worker-reap-scope-audit:
-    desc: Audit retained reap-scope verdicts, exact-child cleanup and unchanged prior evidence
-    dir: experiments/exec-reliability
-    cmds:
-      - uv run --locked python evidence/worker-reap-scope-k112/audit.py
-
-
-  diagnostic:incremental-shutdown-tools:
-    desc: Check incremental shutdown evidence tooling
-    dir: experiments/exec-reliability
-    cmds:
-      - uv run --locked python -m ruff format {{.CLI_ARGS}} evidence/incremental-shutdown-k110/*.py
-      - uv run --locked python -m ruff check evidence/incremental-shutdown-k110/*.py
-      - uv run --locked python -m pyright evidence/incremental-shutdown-k110/*.py
-
-  diagnostic:incremental-shutdown-audit:
-    desc: Audit retained incremental shutdown runs and exact-child cleanup
-    dir: experiments/exec-reliability
-    cmds:
-      - uv run --locked python evidence/incremental-shutdown-k110/audit.py
-
-  diagnostic:incremental-shutdown-preserve:
-    desc: Inventory prior evidence around incremental shutdown work
-    dir: experiments/exec-reliability
-    requires:
-      vars: [MODE]
-    cmds:
-      - uv run --locked python evidence/incremental-shutdown-k110/preserve.py '{{.MODE}}'
-
-  diagnostic:termination-turn-prepare:
-    desc: Freeze termination-turn sources, optionally with MUTANT=<named regression>
-    dir: experiments/exec-reliability
-    requires:
-      vars: [INPUTS, OUT]
-    cmds:
-      - uv run --locked python evidence/termination-turns-k114/prepare.py '{{.INPUTS}}' '{{.OUT}}' {{if .MUTANT}}--mutant '{{.MUTANT}}'{{end}}
-
-  diagnostic:termination-turn-check:
-    desc: Retain frozen termination-turn controls or full tests and static checks
-    dir: experiments/exec-reliability
-    requires:
-      vars: [INPUTS, OUT, MODE]
-    cmds:
-      - uv run --locked python evidence/termination-turns-k114/run_condition.py '{{.INPUTS}}' '{{.OUT}}' '{{.MODE}}' --select '{{.SELECT | default ""}}'
-
-  diagnostic:termination-turn-preserve:
-    desc: Inventory prior evidence around termination-turn work
-    dir: experiments/exec-reliability
-    requires:
-      vars: [MODE]
-    cmds:
-      - uv run --locked python evidence/termination-turns-k114/preserve.py '{{.MODE}}'
-
-  diagnostic:termination-turn-tools:
-    desc: Format and check termination-turn evidence tooling
-    dir: experiments/exec-reliability
-    cmds:
-      - uv run --locked python -m ruff format {{.CLI_ARGS}} evidence/termination-turns-k114/*.py
-      - uv run --locked python -m ruff check evidence/termination-turns-k114/*.py
-      - uv run --locked python -m pyright evidence/termination-turns-k114/*.py
-
-  diagnostic:termination-turn-audit:
-    desc: Audit frozen termination-turn verdicts and exact-child cleanup
-    dir: experiments/exec-reliability
-    cmds:
-      - uv run --locked python evidence/termination-turns-k114/audit.py
-
-  diagnostic:termination-review-prepare:
-    desc: Freeze termination-turn sources, optionally with MUTANT=<named regression>
-    dir: experiments/exec-reliability
-    requires:
-      vars: [INPUTS, OUT]
-    cmds:
-      - uv run --locked python evidence/termination-review-k118/prepare.py '{{.INPUTS}}' '{{.OUT}}' {{if .MUTANT}}--mutant '{{.MUTANT}}'{{end}}
-
-  diagnostic:termination-review-check:
-    desc: Retain frozen termination-turn controls or full tests and static checks
-    dir: experiments/exec-reliability
-    requires:
-      vars: [INPUTS, OUT, MODE]
-    cmds:
-      - uv run --locked python evidence/termination-review-k118/run_condition.py '{{.INPUTS}}' '{{.OUT}}' '{{.MODE}}' --select '{{.SELECT | default ""}}' {{if .BUDGET}}--pytest-budget '{{.BUDGET}}'{{end}}
-
-  diagnostic:termination-review-preserve:
-    desc: Inventory prior evidence around termination-turn work
-    dir: experiments/exec-reliability
-    requires:
-      vars: [MODE]
-    cmds:
-      - uv run --locked python evidence/termination-review-k118/preserve.py '{{.MODE}}'
-
-  diagnostic:termination-review-tools:
-    desc: Format and check termination-turn evidence tooling
-    dir: experiments/exec-reliability
-    cmds:
-      - uv run --locked python -m ruff format {{.CLI_ARGS}} evidence/termination-review-k118/*.py
-      - uv run --locked python -m ruff check evidence/termination-review-k118/*.py
-      - uv run --locked python -m pyright evidence/termination-review-k118/*.py
-
-  diagnostic:termination-review-audit:
-    desc: Audit frozen termination-turn verdicts and exact-child cleanup
-    dir: experiments/exec-reliability
-    cmds:
-      - uv run --locked python evidence/termination-review-k118/audit.py
-
   diagnostic:termination-review-format:
     desc: Format the changed diagnostic controller and its controls
-    dir: experiments/exec-reliability
+    dir: tests/exec-reliability
     cmds:
       - uv run --locked python -m ruff format controller.py test_controller.py
 
-  diagnostic:fork-channel-prepare:
-    desc: Freeze fork-channel sources, optionally with MUTANT=<named regression>
-    dir: experiments/exec-reliability
-    requires:
-      vars: [INPUTS, OUT]
-    cmds:
-      - uv run --locked python evidence/fork-channel-k116/prepare.py '{{.INPUTS}}' '{{.OUT}}' {{if .MUTANT}}--mutant '{{.MUTANT}}'{{end}}
-
-  diagnostic:fork-channel-check:
-    desc: Retain frozen fork-channel controls or full tests and static checks
-    dir: experiments/exec-reliability
-    requires:
-      vars: [INPUTS, OUT, MODE]
-    cmds:
-      - uv run --locked python evidence/fork-channel-k116/run_condition.py '{{.INPUTS}}' '{{.OUT}}' '{{.MODE}}' --select '{{.SELECT | default ""}}' {{if .BUDGET}}--pytest-budget '{{.BUDGET}}'{{end}}
-
-  diagnostic:fork-channel-preserve:
-    desc: Inventory prior evidence around fork-channel work
-    dir: experiments/exec-reliability
-    requires:
-      vars: [MODE]
-    cmds:
-      - uv run --locked python evidence/fork-channel-k116/preserve.py '{{.MODE}}'
-
-  diagnostic:fork-channel-tools:
-    desc: Format and check fork-channel evidence tooling
-    dir: experiments/exec-reliability
-    cmds:
-      - uv run --locked python -m ruff format {{.CLI_ARGS}} evidence/fork-channel-k116/*.py
-      - uv run --locked python -m ruff check evidence/fork-channel-k116/*.py
-      - uv run --locked python -m pyright evidence/fork-channel-k116/*.py
-
-  diagnostic:fork-channel-audit:
-    desc: Audit frozen fork-channel verdicts and exact-child cleanup
-    dir: experiments/exec-reliability
-    cmds:
-      - uv run --locked python evidence/fork-channel-k116/audit.py
-
   diagnostic:fork-channel-format:
     desc: Format the changed diagnostic controller and its controls
-    dir: experiments/exec-reliability
+    dir: tests/exec-reliability
     cmds:
       - uv run --locked python -m ruff format worker_capture.py test_worker_capture.py
-
-  diagnostic:fork-authority-prepare:
-    desc: Freeze fork authority review inputs, optionally with MUTANT
-    dir: experiments/exec-reliability
-    requires:
-      vars: [INPUTS, OUT]
-    cmds:
-      - uv run --locked python evidence/fork-authority-k121/prepare.py '{{.INPUTS}}' '{{.OUT}}' {{if .MUTANT}}--mutant '{{.MUTANT}}'{{end}}
-
-  diagnostic:fork-authority-check:
-    desc: Retain bounded frozen fork authority controls or full diagnostic checks
-    dir: experiments/exec-reliability
-    requires:
-      vars: [INPUTS, OUT, MODE]
-    cmds:
-      - uv run --locked python evidence/fork-authority-k121/run_condition.py '{{.INPUTS}}' '{{.OUT}}' '{{.MODE}}' --select '{{.SELECT | default ""}}' {{if .BUDGET}}--pytest-budget '{{.BUDGET}}'{{end}}
-
-  diagnostic:fork-authority-preserve:
-    desc: Inventory prior evidence around fork authority review integration
-    dir: experiments/exec-reliability
-    requires:
-      vars: [MODE]
-    cmds:
-      - uv run --locked python evidence/fork-authority-k121/preserve.py '{{.MODE}}'
-
-  diagnostic:fork-authority-tools:
-    desc: Format and check fork authority evidence tooling
-    dir: experiments/exec-reliability
-    cmds:
-      - uv run --locked python -m ruff format {{.CLI_ARGS}} evidence/fork-authority-k121/*.py
-      - uv run --locked python -m ruff check evidence/fork-authority-k121/*.py
-      - uv run --locked python -m pyright evidence/fork-authority-k121/*.py
-
-  diagnostic:fork-authority-audit:
-    desc: Audit fork authority verdicts, mutations and fixture cleanup
-    dir: experiments/exec-reliability
-    cmds:
-      - uv run --locked python evidence/fork-authority-k121/audit.py
-
-  diagnostic:leader-turns-prepare:
-    desc: Freeze workload reap turn inputs, optionally with MUTANT
-    dir: experiments/exec-reliability
-    requires:
-      vars: [INPUTS, OUT]
-    cmds:
-      - uv run --locked python evidence/leader-turns-k119/prepare.py '{{.INPUTS}}' '{{.OUT}}' {{if .MUTANT}}--mutant '{{.MUTANT}}'{{end}}
-
-  diagnostic:leader-turns-check:
-    desc: Retain bounded frozen workload reap turn controls or full diagnostic checks
-    dir: experiments/exec-reliability
-    requires:
-      vars: [INPUTS, OUT, MODE]
-    cmds:
-      - uv run --locked python evidence/leader-turns-k119/run_condition.py '{{.INPUTS}}' '{{.OUT}}' '{{.MODE}}' --select '{{.SELECT | default ""}}' {{if .BUDGET}}--pytest-budget '{{.BUDGET}}'{{end}}
-
-  diagnostic:leader-turns-preserve:
-    desc: Inventory prior evidence around workload reap turn integration
-    dir: experiments/exec-reliability
-    requires:
-      vars: [MODE]
-    cmds:
-      - uv run --locked python evidence/leader-turns-k119/preserve.py '{{.MODE}}'
-
-  diagnostic:leader-turns-tools:
-    desc: Format and check workload reap turn evidence tooling
-    dir: experiments/exec-reliability
-    cmds:
-      - uv run --locked python -m ruff format {{.CLI_ARGS}} evidence/leader-turns-k119/*.py
-      - uv run --locked python -m ruff check evidence/leader-turns-k119/*.py
-      - uv run --locked python -m pyright evidence/leader-turns-k119/*.py
-
-  diagnostic:leader-turns-audit:
-    desc: Audit workload reap turn verdicts, mutations and fixture cleanup
-    dir: experiments/exec-reliability
-    cmds:
-      - uv run --locked python evidence/leader-turns-k119/audit.py
-
-  diagnostic:workload-turns-prepare:
-    desc: Freeze workload wait turn inputs, optionally with MUTANT
-    dir: experiments/exec-reliability
-    requires:
-      vars: [INPUTS, OUT]
-    cmds:
-      - uv run --locked python evidence/workload-turns-k122/prepare.py '{{.INPUTS}}' '{{.OUT}}' {{if .MUTANT}}--mutant '{{.MUTANT}}'{{end}}
-
-  diagnostic:workload-turns-check:
-    desc: Retain bounded frozen workload wait turn controls or full diagnostic checks
-    dir: experiments/exec-reliability
-    requires:
-      vars: [INPUTS, OUT, MODE]
-    cmds:
-      - uv run --locked python evidence/workload-turns-k122/run_condition.py '{{.INPUTS}}' '{{.OUT}}' '{{.MODE}}' --select '{{.SELECT | default ""}}' {{if .BUDGET}}--pytest-budget '{{.BUDGET}}'{{end}}
-
-  diagnostic:workload-turns-preserve:
-    desc: Inventory prior evidence around workload wait turn integration
-    dir: experiments/exec-reliability
-    requires:
-      vars: [MODE]
-    cmds:
-      - uv run --locked python evidence/workload-turns-k122/preserve.py '{{.MODE}}'
-
-  diagnostic:workload-turns-tools:
-    desc: Format and check workload wait turn evidence tooling
-    dir: experiments/exec-reliability
-    cmds:
-      - uv run --locked python -m ruff format {{.CLI_ARGS}} evidence/workload-turns-k122/*.py
-      - uv run --locked python -m ruff check evidence/workload-turns-k122/*.py
-      - uv run --locked python -m pyright evidence/workload-turns-k122/*.py
-
-  diagnostic:workload-turns-audit:
-    desc: Audit workload wait turn verdicts, mutations and fixture cleanup
-    dir: experiments/exec-reliability
-    cmds:
-      - uv run --locked python evidence/workload-turns-k122/audit.py
-
-  diagnostic:common-driver-prepare:
-    desc: Freeze shared driver inputs, optionally with MUTANT
-    dir: experiments/exec-reliability
-    requires:
-      vars: [INPUTS, OUT]
-    cmds:
-      - uv run --locked python evidence/common-driver-k124/prepare.py '{{.INPUTS}}' '{{.OUT}}' {{if .MUTANT}}--mutant '{{.MUTANT}}'{{end}}
-
-  diagnostic:common-driver-check:
-    desc: Retain bounded frozen shared driver controls or full diagnostic checks
-    dir: experiments/exec-reliability
-    requires:
-      vars: [INPUTS, OUT, MODE]
-    cmds:
-      - uv run --locked python evidence/common-driver-k124/run_condition.py '{{.INPUTS}}' '{{.OUT}}' '{{.MODE}}' --select '{{.SELECT | default ""}}' {{if .BUDGET}}--pytest-budget '{{.BUDGET}}'{{end}}
-
-  diagnostic:common-driver-preserve:
-    desc: Inventory prior evidence around shared driver integration
-    dir: experiments/exec-reliability
-    requires:
-      vars: [MODE]
-    cmds:
-      - uv run --locked python evidence/common-driver-k124/preserve.py '{{.MODE}}'
-
-  diagnostic:common-driver-tools:
-    desc: Format and check shared driver evidence tooling
-    dir: experiments/exec-reliability
-    cmds:
-      - uv run --locked python -m ruff format {{.CLI_ARGS}} evidence/common-driver-k124/*.py
-      - uv run --locked python -m ruff check evidence/common-driver-k124/*.py
-      - uv run --locked python -m pyright evidence/common-driver-k124/*.py
-
-  diagnostic:common-driver-audit:
-    desc: Audit shared driver verdicts, mutations and fixture cleanup
-    dir: experiments/exec-reliability
-    cmds:
-      - uv run --locked python evidence/common-driver-k124/audit.py
-
-
-  diagnostic:driver-review-prepare:
-    desc: Freeze review integration inputs and optional targeted mutant
-    dir: experiments/exec-reliability
-    requires:
-      vars: [INPUTS, OUT]
-    cmds:
-      - uv run --locked python evidence/driver-review-k128/prepare.py '{{.INPUTS}}' '{{.OUT}}' {{if .MUTANT}}--mutant '{{.MUTANT}}'{{end}}
-
-  diagnostic:driver-review-preserve:
-    desc: Compare all earlier evidence including common-driver-k124
-    dir: experiments/exec-reliability
-    requires:
-      vars: [MODE]
-    cmds:
-      - uv run --locked python evidence/driver-review-k128/preserve.py '{{.MODE}}'
-
-  diagnostic:driver-review-tools:
-    desc: Check review integration evidence tooling
-    dir: experiments/exec-reliability
-    cmds:
-      - uv run --locked python -m ruff format --check evidence/driver-review-k128/*.py
-      - uv run --locked python -m ruff check evidence/driver-review-k128/*.py
-      - uv run --locked python -m pyright evidence/driver-review-k128/*.py
-
-  diagnostic:request-turns-prepare:
-    desc: Retain request transport prepare evidence
-    dir: experiments/exec-reliability
-    cmds:
-      - uv run --locked python evidence/request-turns-k126/prepare.py '{{.INPUTS}}' '{{.OUT}}' {{if .MUTANT}}--mutant '{{.MUTANT}}'{{end}}
-
-  diagnostic:request-turns-check:
-    desc: Retain request transport check evidence
-    dir: experiments/exec-reliability
-    cmds:
-      - uv run --locked python evidence/request-turns-k126/run_condition.py '{{.INPUTS}}' '{{.OUT}}' '{{.MODE}}' --select '{{.SELECT | default "request_turns"}}'
-
-  diagnostic:request-turns-preserve:
-    desc: Retain request transport preserve evidence
-    dir: experiments/exec-reliability
-    cmds:
-      - uv run --locked python evidence/request-turns-k126/preserve.py '{{.MODE}}'
-
-  diagnostic:request-turns-tools:
-    desc: Format and check request transport evidence tools
-    dir: experiments/exec-reliability
-    cmds:
-      - uv run --locked python -m ruff format evidence/request-turns-k126/*.py
-      - uv run --locked python -m ruff check evidence/request-turns-k126/*.py
-      - uv run --locked python -m pyright evidence/request-turns-k126/*.py
-
-  diagnostic:request-turns-audit:
-    desc: Audit frozen request transport outcomes and exact fixture cleanup
-    dir: experiments/exec-reliability
-    cmds:
-      - uv run --locked python evidence/request-turns-k126/audit.py
-
-  diagnostic:request-wakes-prepare:
-    desc: Freeze request wake review controls and a named single-site mutation
-    dir: experiments/exec-reliability
-    requires:
-      vars: [INPUTS, OUT]
-    cmds:
-      - uv run --locked python evidence/request-wakes-k131/prepare.py '{{.INPUTS}}' '{{.OUT}}' {{if .MUTANT}}--mutant '{{.MUTANT}}'{{end}}
-
-  diagnostic:request-wakes-check:
-    desc: Retain bounded request wake control or full diagnostic evidence
-    dir: experiments/exec-reliability
-    requires:
-      vars: [INPUTS, OUT, MODE]
-    cmds:
-      - uv run --locked python evidence/request-wakes-k131/run_condition.py '{{.INPUTS}}' '{{.OUT}}' '{{.MODE}}' --select '{{.SELECT | default "request_turns"}}'
-
-  diagnostic:request-wakes-preserve:
-    desc: Compare every earlier evidence path around request wake integration
-    dir: experiments/exec-reliability
-    requires:
-      vars: [MODE]
-    cmds:
-      - uv run --locked python evidence/request-wakes-k131/preserve.py '{{.MODE}}'
-
-  diagnostic:request-wakes-tools:
-    desc: Format and check request wake evidence tools
-    dir: experiments/exec-reliability
-    cmds:
-      - uv run --locked python -m ruff format {{.CLI_ARGS}} evidence/request-wakes-k131/*.py
-      - uv run --locked python -m ruff check evidence/request-wakes-k131/*.py
-      - uv run --locked python -m pyright evidence/request-wakes-k131/*.py
-
-  diagnostic:request-wakes-audit:
-    desc: Audit frozen wake mutation causes, full cases and fixture cleanup
-    dir: experiments/exec-reliability
-    cmds:
-      - uv run --locked python evidence/request-wakes-k131/audit.py
-
-  diagnostic:command-dispatch-prepare:
-    desc: Freeze persistent command dispatch inputs
-    dir: experiments/exec-reliability
-    requires:
-      vars: [INPUTS, OUT]
-    cmds:
-      - uv run --locked python evidence/command-dispatch-k129/prepare.py '{{.INPUTS}}' '{{.OUT}}' {{if .MUTANT}}--mutant '{{.MUTANT}}'{{end}} {{if .WORKER_SOURCE}}--worker-source '{{.WORKER_SOURCE}}'{{end}}
-
-  diagnostic:command-dispatch-check:
-    desc: Retain bounded command dispatch controls or full suites
-    dir: experiments/exec-reliability
-    requires:
-      vars: [INPUTS, OUT, MODE]
-    cmds:
-      - uv run --locked python evidence/command-dispatch-k129/run_condition.py '{{.INPUTS}}' '{{.OUT}}' '{{.MODE}}' --select '{{.SELECT | default ""}}'
-
-  diagnostic:command-dispatch-preserve:
-    desc: Inventory prior evidence around command dispatch work
-    dir: experiments/exec-reliability
-    requires:
-      vars: [MODE]
-    cmds:
-      - uv run --locked python evidence/command-dispatch-k129/preserve.py '{{.MODE}}'
-
-  diagnostic:command-dispatch-tools:
-    desc: Format and check command dispatch evidence tools
-    dir: experiments/exec-reliability
-    cmds:
-      - uv run --locked python -m ruff format {{.CLI_ARGS}} evidence/command-dispatch-k129/*.py
-      - uv run --locked python -m ruff check evidence/command-dispatch-k129/*.py
-      - uv run --locked python -m pyright evidence/command-dispatch-k129/*.py
-
-  diagnostic:command-dispatch-audit:
-    desc: Verify command dispatch condition provenance and per-case outcomes
-    dir: experiments/exec-reliability
-    cmds:
-      - uv run --locked python evidence/command-dispatch-k129/audit.py

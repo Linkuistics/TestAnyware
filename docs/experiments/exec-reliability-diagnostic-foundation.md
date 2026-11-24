@@ -1,5 +1,8 @@
 # Execution reliability diagnostic foundation
 
+> Historical report: paths and commands refer to the [archived checkout](README.md).
+> The maintained harness is in [tests/exec-reliability](../../tests/exec-reliability/README.md).
+
 The local diagnostic controller passes its revised forced-failure self-check on a macOS host.
 Real child controls distinguish graceful leader exit, PID interruption and group interruption.
 The controller records group inspection before reaping.
